@@ -1,75 +1,55 @@
-# CMC Drive
+# Mapli Drive
 
-Client WebDAV pour Windows qui monte des lecteurs réseau via [rclone](https://rclone.org/), avec une interface moderne et une intégration système (tray, auto-start, notifications).
+Le coffre-fort [Mapli](https://mapli.fr) dans l’Explorateur Windows et le Finder macOS : un lecteur « Mapli » (M: par défaut sous Windows) où l’on glisse fichiers et dossiers — ils arrivent dans le coffre-fort de l’organisation, chiffrés, et tout ce qui est ajouté sur le web apparaît sur le poste.
 
-## Fonctionnalités
+## Ce que fait l’application
 
-- **Montage WebDAV** — Monte des partages WebDAV comme lecteurs Windows (via rclone + WinFsp)
-- **Multi-serveurs** — Gérez plusieurs serveurs simultanément
-- **Connexion automatique** — Reconnexion au démarrage et après veille/hibernation
-- **Tray system** — L'app reste active en arrière-plan avec un indicateur de statut coloré
-- **Espace disque** — Affichage en temps réel de l'espace utilisé/disponible
-- **Mises à jour automatiques** — Vérification et installation via electron-updater
-- **Sécurité** — Mots de passe chiffrés via `safeStorage`, CSP activé
+- **Appairage sans mot de passe** : un code « MAPL-XXXX » à approuver sur app.mapli.fr ; le poste reçoit un token d’appareil, chiffré par le système (DPAPI / trousseau), révocable depuis Mapli (Réglages → Sécurité → Appareils connectés).
+- **Lecteur réseau** : Windows via [rclone](https://rclone.org/) + [WinFsp](https://winfsp.dev/) (cache local des fichiers ouverts, écriture différée de 5 s, reprise après coupure ou veille) ; macOS via le client WebDAV du Finder (volume « Mapli »).
+- **Mêmes droits que le web** : permissions du membre, dossiers restreints, quotas ; suppression = corbeille (30 jours).
+- **Zone de notification** : état du lecteur (pastille), ouverture du lecteur, pause, coffre-fort sur le web.
+- **Mises à jour automatiques** depuis les releases GitHub.
 
-## Prérequis
+## Sécurité
 
-- [Node.js](https://nodejs.org/) 18+
-- [WinFsp](https://winfsp.dev/) (nécessaire pour le montage rclone)
-- [rclone.exe](https://rclone.org/) dans le dossier `resources/`
-
-## Installation
-
-```bash
-git clone https://github.com/NicolasMB3/webdav_connect.git
-cd webdav_connect
-npm install
-```
+- Token d’appareil : jamais en clair sur le disque, jamais sur la ligne de commande (transmis à rclone par l’environnement du processus).
+- Port de contrôle de rclone limité à 127.0.0.1, protégé par des identifiants aléatoires propres à chaque montage.
+- Certificat TLS du serveur vérifié ; rclone n’utilise pas la configuration personnelle de l’utilisateur.
+- Fenêtre isolée (sandbox, contextIsolation, CSP stricte), pont IPC à liste fermée d’actions.
+- Côté serveur : fichiers chiffrés par blocs (XChaCha20-Poly1305), une clé par fichier.
 
 ## Développement
 
 ```bash
-npm run dev       # Lancer en mode développement
-npm run build     # Build de production
-npm run lint      # Vérifier le code (ESLint)
-npm run format    # Formater le code (Prettier)
-npm run package   # Créer l'installateur Windows
+npm install
+npm run dev          # application (Electron), contre app.mapli.fr
+npm run preview:ui   # interface seule dans un navigateur (maquette : ?etat=connecte, appairage, envoi…)
+npm run lint && npm run typecheck && npm test
 ```
+
+Contre un environnement local : `MAPLI_WEB_URL=http://localhost:3001 MAPLI_API_URL=http://localhost:8000/api/v1 npm run dev`.
+
+Le montage Windows a besoin de `resources/rclone.exe` (téléchargé et vérifié par la CI au build) et de WinFsp installé.
+
+## Publication
+
+Créer une release GitHub (tag `vX.Y.Z`, version alignée sur `package.json`) : la CI construit `Mapli-Drive-Setup.exe` (Windows) et `Mapli-Drive.dmg` (macOS), les attache à la release, et les postes installés se mettent à jour. Le coffre-fort web pointe vers `releases/latest/download/…`.
 
 ## Architecture
 
 ```
 src/
-├── main/              # Process principal Electron (Node.js)
-│   ├── index.ts       # Point d'entrée, IPC handlers
-│   ├── rclone-manager.ts  # Gestion des montages rclone
-│   ├── store.ts       # Persistance des configurations
-│   ├── tray.ts        # Icône système + menu contextuel
-│   └── updater.ts     # Auto-updater
-├── preload/           # Bridge IPC (contextBridge)
-│   └── index.ts
-├── renderer/          # Interface React
-│   ├── index.html
-│   └── src/
-│       ├── App.tsx / App.css
-│       └── components/
-│           ├── DriveCard.tsx    # Carte de lecteur
-│           ├── LoginDialog.tsx  # Formulaire de connexion
-│           ├── Settings.tsx     # Page paramètres
-│           └── Titlebar.tsx     # Barre de titre custom
-└── shared/            # Code partagé (types, constantes IPC)
-    ├── types.ts
-    └── ipc-channels.ts
+├── main/                  # Processus principal (Node)
+│   ├── index.ts           # Fenêtre, zone de notification, IPC
+│   ├── controller.ts      # État du lecteur : appairage, montage, reconnexion
+│   ├── pairing.ts         # Appairage (Device Authorization Grant)
+│   ├── drive-mount.ts     # Montage rclone (Windows) / Finder (macOS)
+│   ├── rclone-args.ts     # Paramètres de montage (testés)
+│   ├── api.ts             # API Mapli
+│   ├── session.ts         # Token chiffré + réglages
+│   ├── tray.ts            # Zone de notification
+│   └── updater.ts         # Mises à jour
+├── preload/               # Pont IPC (contextBridge)
+├── renderer/              # Interface React (charte « Papier »)
+└── shared/                # Types et canaux IPC
 ```
-
-## Stack technique
-
-- **Electron** 40+ avec electron-vite
-- **React** 19
-- **TypeScript** strict
-- **rclone** pour le montage WebDAV
-- **ESLint** + **Prettier** pour la qualité du code
-
-## Licence
-
-[MIT](LICENSE)

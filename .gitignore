@@ -5,3 +5,8 @@ dist/
 .claude/
 .idea/
 docs/plans/
+
+# Outils tiers téléchargés au build (jamais versionnés)
+resources/rclone
+resources/rclone.exe
+build/winfsp.msi

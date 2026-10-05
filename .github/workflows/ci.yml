@@ -1,0 +1,24 @@
+name: CI
+
+# Lint, types et tests à chaque envoi : rien ne part en release sans une suite verte.
+on:
+  push:
+    branches: [dev, main]
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npx electron-vite build

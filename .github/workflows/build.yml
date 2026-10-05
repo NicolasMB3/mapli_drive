@@ -1,37 +1,52 @@
 name: Build & Release
 
+# Construit les installateurs de Mapli Drive (Windows, macOS) à la création d'une
+# release GitHub et les y attache : les postes se mettent à jour d'eux-mêmes, et le
+# coffre-fort web pointe vers « releases/latest/download/Mapli-Drive-Setup.exe ».
 on:
   release:
     types: [created]
   workflow_dispatch:
 
+env:
+  RCLONE_VERSION: v1.75.1
+  # Empreintes officielles (https://downloads.rclone.org/v1.75.1/SHA256SUMS).
+  RCLONE_SHA256_WINDOWS: 200eb602c126d82aa38b51e0f6b9ae837473ff99b51278d3f6f837574c494d6e
+  WINFSP_URL: https://github.com/winfsp/winfsp/releases/download/v2.1/winfsp-2.1.25156.msi
+  WINFSP_SHA256: 073a70e00f77423e34bed98b86e600def93393ba5822204fac57a29324db9f7a
+
 jobs:
   build-windows:
-    runs-on: windows-latest
+    runs-on: windows-2025
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
 
       - run: npm ci
 
-      - name: Download rclone
+      - name: Download rclone (checksum verified)
+        shell: pwsh
         run: |
-          Invoke-WebRequest -Uri "https://downloads.rclone.org/v1.69.3/rclone-v1.69.3-windows-amd64.zip" -OutFile rclone.zip
+          $zip = "rclone-$env:RCLONE_VERSION-windows-amd64.zip"
+          Invoke-WebRequest -Uri "https://downloads.rclone.org/$env:RCLONE_VERSION/$zip" -OutFile rclone.zip
+          $hash = (Get-FileHash rclone.zip -Algorithm SHA256).Hash.ToLower()
+          if ($hash -ne $env:RCLONE_SHA256_WINDOWS) { throw "rclone: empreinte inattendue ($hash)" }
           Expand-Archive rclone.zip -DestinationPath rclone-tmp
-          Copy-Item "rclone-tmp/rclone-v1.69.3-windows-amd64/rclone.exe" "resources/rclone.exe"
+          Copy-Item "rclone-tmp/rclone-$env:RCLONE_VERSION-windows-amd64/rclone.exe" "resources/rclone.exe"
           Remove-Item rclone.zip, rclone-tmp -Recurse -Force
-        shell: pwsh
 
-      - name: Download WinFsp MSI
-        run: |
-          Invoke-WebRequest -Uri "https://github.com/winfsp/winfsp/releases/download/v2.1/winfsp-2.1.25156.msi" -OutFile "build/winfsp.msi"
+      - name: Download WinFsp MSI (checksum verified)
         shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri $env:WINFSP_URL -OutFile "build/winfsp.msi"
+          $hash = (Get-FileHash build/winfsp.msi -Algorithm SHA256).Hash.ToLower()
+          if ($hash -ne $env:WINFSP_SHA256) { throw "WinFsp: empreinte inattendue ($hash)" }
 
       - run: npm run package
         env:
@@ -48,35 +63,24 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
+        shell: pwsh
         run: |
-          gh release upload "$env:RELEASE_TAG" dist/*.exe dist/latest.yml --clobber
+          gh release upload "$env:RELEASE_TAG" dist/Mapli-Drive-Setup.exe dist/Mapli-Drive-Setup.exe.blockmap dist/latest.yml --clobber
 
+  # macOS : le lecteur passe par le client WebDAV du Finder, sans rclone.
   build-macos:
-    runs-on: macos-latest
+    runs-on: macos-15
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
 
       - run: npm ci
-
-      - name: Download rclone (macOS universal)
-        run: |
-          curl -L -o rclone-arm64.zip "https://downloads.rclone.org/v1.69.3/rclone-v1.69.3-osx-arm64.zip"
-          curl -L -o rclone-amd64.zip "https://downloads.rclone.org/v1.69.3/rclone-v1.69.3-osx-amd64.zip"
-          unzip rclone-arm64.zip -d rclone-arm64-tmp
-          unzip rclone-amd64.zip -d rclone-amd64-tmp
-          lipo -create \
-            rclone-arm64-tmp/rclone-v1.69.3-osx-arm64/rclone \
-            rclone-amd64-tmp/rclone-v1.69.3-osx-amd64/rclone \
-            -output resources/rclone
-          chmod +x resources/rclone
-          rm -rf rclone-arm64.zip rclone-amd64.zip rclone-arm64-tmp rclone-amd64-tmp
 
       - name: Build and package
         run: npm run package:mac
@@ -97,4 +101,4 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
-          gh release upload "$RELEASE_TAG" dist/*.dmg dist/*.zip dist/latest-mac.yml --clobber
+          gh release upload "$RELEASE_TAG" dist/Mapli-Drive.dmg dist/Mapli-Drive-mac.zip dist/latest-mac.yml --clobber
