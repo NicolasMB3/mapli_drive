@@ -1,12 +1,17 @@
 name: Build & Release
 
-# Construit les installateurs de Mapli Drive (Windows, macOS) à la création d'une
-# release GitHub et les y attache : les postes se mettent à jour d'eux-mêmes, et le
-# coffre-fort web pointe vers « releases/latest/download/Mapli-Drive-Setup.exe ».
+# Construit les installateurs de Mapli Drive (Windows, macOS) à chaque tag vX.Y.Z et les
+# dépose sur app.mapli.fr/downloads/drive : les postes s'y mettent à jour (latest.yml) et
+# le coffre-fort web y pointe (noms fixes « Mapli-Drive-Setup.exe » et « Mapli-Drive.dmg »).
+# Rien ne dépend de GitHub côté postes : le dépôt peut rester privé.
 on:
-  release:
-    types: [created]
+  push:
+    tags: ['v*']
+  # Lancement à la main : construit sans publier, sauf s'il est lancé sur un tag.
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 env:
   RCLONE_VERSION: v1.75.1
@@ -18,10 +23,15 @@ env:
 jobs:
   build-windows:
     runs-on: windows-2025
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v7
+
+      - name: Tag and version match
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          [ "v$version" = "$GITHUB_REF_NAME" ] || { echo "Tag $GITHUB_REF_NAME ≠ package.json $version"; exit 1; }
 
       - uses: actions/setup-node@v7
         with:
@@ -48,30 +58,20 @@ jobs:
           $hash = (Get-FileHash build/winfsp.msi -Algorithm SHA256).Hash.ToLower()
           if ($hash -ne $env:WINFSP_SHA256) { throw "WinFsp: empreinte inattendue ($hash)" }
 
-      - run: npm run package
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - run: npm run package -- --publish never
 
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: windows-build
-          path: dist/*.exe
-
-      - name: Upload assets to release
-        if: github.event_name == 'release'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-        shell: pwsh
-        run: |
-          gh release upload "$env:RELEASE_TAG" dist/Mapli-Drive-Setup.exe dist/Mapli-Drive-Setup.exe.blockmap dist/latest.yml --clobber
+          name: windows
+          if-no-files-found: error
+          path: |
+            dist/Mapli-Drive-Setup-*.exe
+            dist/Mapli-Drive-Setup-*.exe.blockmap
+            dist/latest.yml
 
   # macOS : le lecteur passe par le client WebDAV du Finder, sans rclone.
   build-macos:
     runs-on: macos-15
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v7
 
@@ -82,23 +82,78 @@ jobs:
 
       - run: npm ci
 
-      - name: Build and package
-        run: npm run package:mac
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - run: npm run package:mac -- --publish never
 
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: macos-build
+          name: macos
+          if-no-files-found: error
           path: |
-            dist/*.dmg
-            dist/*.zip
+            dist/Mapli-Drive-*.dmg
+            dist/Mapli-Drive-*-mac.zip
+            dist/*.blockmap
+            dist/latest-mac.yml
 
-      - name: Upload assets to release
-        if: github.event_name == 'release'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+  # Dépôt sur app.mapli.fr. La clé de la CI ne sert qu'à ça : sur le serveur, elle est
+  # limitée par rrsync à l'écriture dans /mnt/data/mapli/downloads/drive (pas de shell).
+  publish:
+    needs: [build-windows, build-macos]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    concurrency: publish-downloads
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Prepare the files
         run: |
-          gh release upload "$RELEASE_TAG" dist/Mapli-Drive.dmg dist/Mapli-Drive-mac.zip dist/latest-mac.yml --clobber
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          mkdir drive
+          cp artifacts/* drive/
+          cd drive
+          # Les fichiers annoncés existent bien, pour cette version.
+          grep -q "path: Mapli-Drive-Setup-$version.exe" latest.yml
+          grep -q "path: Mapli-Drive-$version-mac.zip" latest-mac.yml
+          test -s "Mapli-Drive-Setup-$version.exe" && test -s "Mapli-Drive-$version.dmg"
+          # Liens stables du coffre-fort web : la dernière version sous un nom fixe.
+          cp "Mapli-Drive-Setup-$version.exe" Mapli-Drive-Setup.exe
+          cp "Mapli-Drive-$version.dmg" Mapli-Drive.dmg
+          sha256sum -- * > "SHA256SUMS-$version"
+          ls -la
+
+      - name: SSH key
+        env:
+          DEPLOY_KEY: ${{ secrets.DRIVE_DEPLOY_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DRIVE_DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/drive_deploy
+          chmod 600 ~/.ssh/drive_deploy
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      - name: Upload to app.mapli.fr
+        env:
+          DEPLOY_HOST: ${{ secrets.DRIVE_DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DRIVE_DEPLOY_USER }}
+        run: |
+          set -euo pipefail
+          ssh_cmd="ssh -i $HOME/.ssh/drive_deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o BatchMode=yes"
+          # Les installateurs d'abord (mis en place ensemble à la fin de l'envoi), les
+          # fichiers de mise à jour ensuite : un poste ne voit jamais une version
+          # annoncée avant ses fichiers.
+          rsync -rtp --chmod=D755,F644 --delay-updates --exclude 'latest*.yml' -e "$ssh_cmd" drive/ "$DEPLOY_USER@$DEPLOY_HOST:"
+          rsync -rtp --chmod=D755,F644 -e "$ssh_cmd" drive/latest.yml drive/latest-mac.yml "$DEPLOY_USER@$DEPLOY_HOST:"
+
+      - name: Check the downloads
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          base=https://app.mapli.fr/downloads/drive
+          curl -fsS "$base/latest.yml" | grep -q "^version: $version$"
+          curl -fsS "$base/latest-mac.yml" | grep -q "^version: $version$"
+          for f in "Mapli-Drive-Setup-$version.exe" Mapli-Drive-Setup.exe "Mapli-Drive-$version.dmg" Mapli-Drive.dmg; do
+            curl -fsSI "$base/$f" > /dev/null && echo "ok  $base/$f"
+          done

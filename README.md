@@ -8,7 +8,7 @@ Le coffre-fort [Mapli](https://mapli.fr) dans l’Explorateur Windows et le Find
 - **Lecteur réseau** : Windows via [rclone](https://rclone.org/) + [WinFsp](https://winfsp.dev/) (cache local des fichiers ouverts, écriture différée de 5 s, reprise après coupure ou veille) ; macOS via le client WebDAV du Finder (volume « Mapli »).
 - **Mêmes droits que le web** : permissions du membre, dossiers restreints, quotas ; suppression = corbeille (30 jours).
 - **Zone de notification** : état du lecteur (pastille), ouverture du lecteur, pause, coffre-fort sur le web.
-- **Mises à jour automatiques** depuis les releases GitHub.
+- **Mises à jour automatiques** depuis app.mapli.fr (`/downloads/drive/latest.yml`).
 
 ## Sécurité
 
@@ -33,7 +33,9 @@ Le montage Windows a besoin de `resources/rclone.exe` (téléchargé et vérifi�
 
 ## Publication
 
-Créer une release GitHub (tag `vX.Y.Z`, version alignée sur `package.json`) : la CI construit `Mapli-Drive-Setup.exe` (Windows) et `Mapli-Drive.dmg` (macOS), les attache à la release, et les postes installés se mettent à jour. Le coffre-fort web pointe vers `releases/latest/download/…`.
+Pousser un tag `vX.Y.Z` (version alignée sur `package.json`, vérifiée par la CI) : la CI construit les installateurs Windows et macOS et les dépose sur `https://app.mapli.fr/downloads/drive/` — fichiers versionnés et `latest.yml` / `latest-mac.yml` pour les mises à jour des postes, plus `Mapli-Drive-Setup.exe` et `Mapli-Drive.dmg`, la dernière version sous un nom fixe, vers lesquels pointe le coffre-fort web. Rien ne dépend de GitHub côté postes : le dépôt peut rester privé.
+
+Secrets de la CI : `DRIVE_DEPLOY_KEY` (clé SSH propre à ce dépôt, limitée sur le serveur par `rrsync -wo` à l'écriture dans `/mnt/data/mapli/downloads/drive`, sans shell), `DRIVE_DEPLOY_HOST`, `DRIVE_DEPLOY_USER` et `DRIVE_DEPLOY_KNOWN_HOSTS` (clé d'hôte du serveur, vérifiée). Le serveur garde les trois dernières versions (`/etc/cron.daily/mapli-drive-prune`).
 
 ## Architecture
 

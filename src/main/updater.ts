@@ -3,14 +3,16 @@ import { app, shell, type BrowserWindow } from 'electron'
 import type { UpdateStatus } from '../shared/types'
 import { IPC_UPDATER_STATUS } from '../shared/ipc-channels'
 import { IS_MAC } from './platform'
+import { WEB_URL } from './config'
 
 /*
- * Mises à jour automatiques (GitHub Releases de mapli_drive). Sous Windows, la mise à
- * jour se télécharge seule puis s'installe au redémarrage choisi par l'utilisateur ;
- * sous macOS (application non signée), on ouvre la page de téléchargement.
+ * Mises à jour automatiques, depuis app.mapli.fr/downloads/drive (latest.yml, déposé par
+ * la CI avec les installateurs). Sous Windows, la mise à jour se télécharge seule puis
+ * s'installe au redémarrage choisi par l'utilisateur ; sous macOS (application non
+ * signée), on télécharge le dernier installateur.
  */
 
-const RELEASES_URL = 'https://github.com/NicolasMB3/mapli_drive/releases/latest'
+const MAC_INSTALLER_URL = `${WEB_URL}/downloads/drive/Mapli-Drive.dmg`
 const INITIAL_CHECK_DELAY_MS = 10_000
 const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1_000
 
@@ -63,7 +65,7 @@ export function checkForUpdates(): void {
  */
 export function installUpdate(): void {
   if (IS_MAC) {
-    void shell.openExternal(RELEASES_URL)
+    void shell.openExternal(MAC_INSTALLER_URL)
     return
   }
   autoUpdater.quitAndInstall(false, true)

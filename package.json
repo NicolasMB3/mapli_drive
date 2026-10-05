@@ -61,7 +61,7 @@
       "target": "nsis",
       "icon": "build/icon.ico",
       "signAndEditExecutable": false,
-      "artifactName": "Mapli-Drive-Setup.${ext}"
+      "artifactName": "Mapli-Drive-Setup-${version}.${ext}"
     },
     "nsis": {
       "oneClick": false,
@@ -75,7 +75,7 @@
       "installerHeaderIcon": "build/icon.ico",
       "include": "build/installer.nsh",
       "uninstallDisplayName": "Mapli Drive",
-      "artifactName": "Mapli-Drive-Setup.${ext}",
+      "artifactName": "Mapli-Drive-Setup-${version}.${ext}",
       "deleteAppDataOnUninstall": false
     },
     "mac": {
@@ -103,7 +103,7 @@
         "LSUIElement": true,
         "NSHumanReadableCopyright": "Mapli"
       },
-      "artifactName": "Mapli-Drive-mac.${ext}"
+      "artifactName": "Mapli-Drive-${version}-mac.${ext}"
     },
     "dmg": {
       "contents": [
@@ -118,15 +118,13 @@
           "path": "/Applications"
         }
       ],
-      "artifactName": "Mapli-Drive.${ext}",
+      "artifactName": "Mapli-Drive-${version}.${ext}",
       "title": "Mapli Drive"
     },
     "afterPack": "./scripts/afterPack.cjs",
     "publish": {
-      "provider": "github",
-      "owner": "NicolasMB3",
-      "repo": "mapli_drive",
-      "releaseType": "release"
+      "provider": "generic",
+      "url": "https://app.mapli.fr/downloads/drive"
     },
     "files": [
       "out/**/*",
