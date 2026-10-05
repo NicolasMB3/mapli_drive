@@ -114,6 +114,12 @@ export const api = {
       (r) => r.data
     ),
 
+  /** Empreinte du coffre : change dès que son contenu ou ses accès changent. */
+  driveRevision: (token: string) =>
+    request<{ data: { revision: string } }>('GET', '/desktop/app/drive/revision', { token }).then(
+      (r) => r.data.revision
+    ),
+
   recent: (token: string) =>
     request<{ data: RecentFilePayload[] }>('GET', '/desktop/app/drive/recent', { token }).then(
       (r) => r.data

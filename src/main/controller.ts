@@ -25,6 +25,8 @@ import {
 const STATUS_REFRESH_MS = 5 * 60_000
 const RECENT_REFRESH_MS = 60_000
 const HEALTH_CHECK_MS = 10_000
+/** Révision du coffre : de quoi voir un changement fait ailleurs en moins de 20 s. */
+const REVISION_POLL_MS = 20_000
 const RETRY_DELAYS_MS = [5_000, 15_000, 30_000, 60_000, 120_000]
 
 export class DriveController extends EventEmitter {
@@ -37,6 +39,10 @@ export class DriveController extends EventEmitter {
   private statsTimer: NodeJS.Timeout | null = null
   private connecting = false
   private windowVisible = false
+  /** Dernière révision du coffre vue, et dossiers de premier niveau du lecteur à ce moment-là. */
+  private revision: string | null = null
+  private topFolders: string[] | null = null
+  private checkingRevision = false
 
   private readonly pairing = new PairingFlow({
     onUpdate: (pairing) => this.update({ pairing }),
@@ -66,6 +72,7 @@ export class DriveController extends EventEmitter {
     this.timers.push(setInterval(() => void this.healthCheck(), HEALTH_CHECK_MS))
     this.timers.push(setInterval(() => void this.refreshStatus(), STATUS_REFRESH_MS))
     this.timers.push(setInterval(() => void this.refreshRecent(), RECENT_REFRESH_MS))
+    this.timers.push(setInterval(() => void this.checkRevision(), REVISION_POLL_MS))
 
     this.device = loadDevice()
     if (!this.device) {
@@ -161,6 +168,9 @@ export class DriveController extends EventEmitter {
 
       this.retryCount = 0
       this.update({ phase: 'connected', mounted: true, mountPoint: path })
+      // Nouveau montage : la première révision lue relit aussi l'arborescence de l'Explorateur.
+      this.revision = null
+      this.topFolders = null
       this.scheduleStats()
       void this.refreshRecent()
     } catch (error) {
@@ -360,6 +370,31 @@ export class DriveController extends EventEmitter {
       this.applyStatus(await api.driveStatus(this.device.token))
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) this.handleConnectError(error)
+    }
+  }
+
+  /**
+   * Le coffre a-t-il changé ailleurs (web, autre poste, partage) ? Si oui, et qu'aucun
+   * envoi n'est en cours, le lecteur relit le serveur et l'Explorateur son arborescence
+   * — sans quoi un dossier supprimé sur le web y reste affiché.
+   */
+  private async checkRevision(): Promise<void> {
+    if (!this.device || this.state.phase !== 'connected' || this.checkingRevision) return
+    this.checkingRevision = true
+    try {
+      const revision = await api.driveRevision(this.device.token)
+      if (revision === this.revision) return
+      // Des envois partent : on attend qu'ils soient finis (le prochain passage rafraîchira).
+      if (this.state.pendingUploads > 0 || this.state.transfers.length > 0) return
+
+      const first = this.revision === null
+      this.revision = revision
+      this.topFolders = await this.mount.refreshExplorer(first ? null : this.topFolders)
+      if (!first) void this.refreshRecent()
+    } catch {
+      // Hors ligne ou token révoqué : la surveillance de la connexion s'en occupe.
+    } finally {
+      this.checkingRevision = false
     }
   }
 

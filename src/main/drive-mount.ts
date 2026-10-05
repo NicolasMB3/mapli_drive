@@ -1,13 +1,16 @@
 import { spawn, execFile, execFileSync, type ChildProcess } from 'child_process'
 import { randomBytes } from 'crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
+import { readdir } from 'fs/promises'
 import http from 'http'
 import { createServer } from 'net'
 import { join } from 'path'
 import { app } from 'electron'
 import type { Transfer } from '../shared/types'
 import { VOLUME_NAME } from './config'
-import { getRclonePath, isMountReady, IS_MAC, IS_WIN } from './platform'
+import { notifyShell } from './explorer-notify'
+import { shellChangesFor } from './shell-changes'
+import { getRclonePath, isMountReady, IS_MAC, IS_WIN, mountPathForOpen } from './platform'
 import { rcloneMountArgs, rcloneMountEnv } from './rclone-args'
 
 /*
@@ -101,6 +104,41 @@ export class DriveMount {
       }
     } catch {
       return { transfers: [], pendingUploads: 0 }
+    }
+  }
+
+  /**
+   * Après un changement fait ailleurs (web, autre poste) : rclone oublie ses listes de
+   * dossiers (la prochaine lecture repart du serveur), puis l'Explorateur est prévenu,
+   * pour que son volet de navigation retire les dossiers disparus et montre les
+   * nouveaux. Renvoie les dossiers de premier niveau actuels (null si illisibles).
+   * Windows seulement : le Finder relit le volume WebDAV de lui-même.
+   */
+  async refreshExplorer(previous: string[] | null): Promise<string[] | null> {
+    const path = this.mountedPath
+    if (!path || !IS_WIN || !this.rc) return null
+
+    try {
+      await this.rcPost('vfs/forget')
+    } catch {
+      // Port de contrôle injoignable : les listes se rafraîchiront d'elles-mêmes (30 s).
+    }
+    const current = await this.topLevelFolders()
+    if (current === null) return previous
+
+    await notifyShell(shellChangesFor(mountPathForOpen(path), previous, current))
+    return current
+  }
+
+  /** Noms des dossiers à la racine du lecteur (null si le lecteur est illisible). */
+  async topLevelFolders(): Promise<string[] | null> {
+    const path = this.mountedPath
+    if (!path) return null
+    try {
+      const entries = await readdir(mountPathForOpen(path), { withFileTypes: true })
+      return entries.filter((e) => e.isDirectory()).map((e) => e.name)
+    } catch {
+      return null
     }
   }
 
