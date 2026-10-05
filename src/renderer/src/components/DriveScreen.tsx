@@ -179,6 +179,16 @@ export function DriveScreen({
                 {formatBytes(storage.memberLimitBytes)}
               </p>
             )}
+            {limited && percent >= 80 && (
+              <button
+                type="button"
+                onClick={() => mapli.drive.openWeb('storage')}
+                className="mt-1.5 flex cursor-pointer items-center gap-1 text-[12px] font-medium text-ink underline decoration-ink/25 underline-offset-[3px] hover:decoration-ink"
+              >
+                {percent >= 100 ? 'Coffre plein : augmenter l’espace' : 'Augmenter l’espace'}{' '}
+                <ArrowUpRight className="h-3 w-3" />
+              </button>
+            )}
           </div>
         )}
 

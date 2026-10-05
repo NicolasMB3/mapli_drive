@@ -199,8 +199,10 @@ export class DriveController extends EventEmitter {
     if (this.mount.path) void shell.openPath(mountPathForOpen(this.mount.path))
   }
 
-  openWeb(): void {
-    void shell.openExternal(`${WEB_URL}/documents`)
+  /** Ouvre le coffre-fort sur le web, ou la page de son espace (liste fermée de pages). */
+  openWeb(page: unknown = 'vault'): void {
+    const path = page === 'storage' ? '/settings/facturation#stockage' : '/documents'
+    void shell.openExternal(`${WEB_URL}${path}`)
   }
 
   dismissNotice(): void {

@@ -49,7 +49,8 @@ const api: MapliApi = {
     cancelPairing: (): Promise<void> => ipcRenderer.invoke(IPC_DRIVE_CANCEL_PAIRING),
     openVerification: (): Promise<void> => ipcRenderer.invoke(IPC_DRIVE_OPEN_VERIFICATION),
     open: (): Promise<void> => ipcRenderer.invoke(IPC_DRIVE_OPEN),
-    openWeb: (): Promise<void> => ipcRenderer.invoke(IPC_DRIVE_OPEN_WEB),
+    openWeb: (page?: 'vault' | 'storage'): Promise<void> =>
+      ipcRenderer.invoke(IPC_DRIVE_OPEN_WEB, page),
     pause: (): Promise<void> => ipcRenderer.invoke(IPC_DRIVE_PAUSE),
     resume: (): Promise<void> => ipcRenderer.invoke(IPC_DRIVE_RESUME),
     unpair: (): Promise<void> => ipcRenderer.invoke(IPC_DRIVE_UNPAIR),

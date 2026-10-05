@@ -4,7 +4,7 @@ import type { DriveSettings, DriveState } from '@shared/types'
 /*
  * Accès au processus principal. Hors Electron (aperçu de l'interface dans un navigateur,
  * pour la mise au point), une maquette simule les états : ?etat=appairage, expire,
- * connecte, vide, envoi, pause, hors-ligne, erreur, deconnecte, nouveau.
+ * connecte, vide, plein, envoi, pause, hors-ligne, erreur, deconnecte, nouveau.
  */
 
 function mockState(): DriveState {
@@ -149,6 +149,11 @@ function mockState(): DriveState {
           },
           { name: 'Planning.xlsx', bytes: 12_000, size: 61_000, percentage: 20, speed: 40_000 }
         ]
+      }
+    case 'plein':
+      return {
+        ...base,
+        storage: { ...base.storage!, usedBytes: 52.1e9, limitBytes: 53.7e9 }
       }
     case 'vide':
       return { ...base, storage: { ...base.storage!, usedBytes: 0, trashBytes: 0 }, recent: [] }

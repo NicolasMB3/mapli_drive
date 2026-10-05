@@ -14,7 +14,8 @@ export interface MapliApi {
     cancelPairing: () => Promise<void>
     openVerification: () => Promise<void>
     open: () => Promise<void>
-    openWeb: () => Promise<void>
+    /** Le coffre-fort sur le web (« vault »), ou la page de son espace (« storage »). */
+    openWeb: (page?: 'vault' | 'storage') => Promise<void>
     pause: () => Promise<void>
     resume: () => Promise<void>
     unpair: () => Promise<void>
