@@ -35,7 +35,9 @@ export function setupAutoUpdater(windowGetter: () => BrowserWindow | null): void
   autoUpdater.autoInstallOnAppQuit = true
 
   autoUpdater.on('checking-for-update', () => publish({ status: 'checking' }))
-  autoUpdater.on('update-available', (info) => publish({ status: IS_MAC ? 'available' : 'downloading', version: info.version }))
+  autoUpdater.on('update-available', (info) =>
+    publish({ status: IS_MAC ? 'available' : 'downloading', version: info.version })
+  )
   autoUpdater.on('update-not-available', () => publish({ status: 'up-to-date' }))
   autoUpdater.on('update-downloaded', (info) => publish({ status: 'ready', version: info.version }))
   autoUpdater.on('error', () => publish({ status: 'error' }))

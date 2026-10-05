@@ -11,7 +11,7 @@ const TIMEOUT_MS = 20_000
 export class ApiError extends Error {
   constructor(
     message: string,
-    public readonly status: number,
+    public readonly status: number
   ) {
     super(message)
   }
@@ -20,7 +20,11 @@ export class ApiError extends Error {
 /** Réseau ou serveur injoignable (par opposition à une réponse d'erreur du serveur). */
 export class NetworkError extends Error {}
 
-async function request<T>(method: string, path: string, options: { token?: string; body?: unknown } = {}): Promise<T> {
+async function request<T>(
+  method: string,
+  path: string,
+  options: { token?: string; body?: unknown } = {}
+): Promise<T> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
 
@@ -33,9 +37,9 @@ async function request<T>(method: string, path: string, options: { token?: strin
         Accept: 'application/json',
         'Content-Type': 'application/json',
         'User-Agent': `MapliDrive/${app.getVersion()}`,
-        ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
+        ...(options.token ? { Authorization: `Bearer ${options.token}` } : {})
       },
-      body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+      body: options.body !== undefined ? JSON.stringify(options.body) : undefined
     })
   } catch {
     throw new NetworkError('Mapli est injoignable. Vérifiez votre connexion internet.')
@@ -96,14 +100,25 @@ export interface RecentFilePayload {
 
 export const api = {
   startPairing: (deviceName: string, platform: string) =>
-    request<{ data: PairingStart }>('POST', '/desktop/pairing/start', { body: { device_name: deviceName, platform } }).then((r) => r.data),
+    request<{ data: PairingStart }>('POST', '/desktop/pairing/start', {
+      body: { device_name: deviceName, platform }
+    }).then((r) => r.data),
 
   pollPairing: (code: string, secret: string) =>
-    request<{ data: PairingPoll }>('POST', '/desktop/pairing/poll', { body: { device_code: code, device_secret: secret } }).then((r) => r.data),
+    request<{ data: PairingPoll }>('POST', '/desktop/pairing/poll', {
+      body: { device_code: code, device_secret: secret }
+    }).then((r) => r.data),
 
-  driveStatus: (token: string) => request<{ data: DriveStatusPayload }>('GET', '/desktop/app/drive', { token }).then((r) => r.data),
+  driveStatus: (token: string) =>
+    request<{ data: DriveStatusPayload }>('GET', '/desktop/app/drive', { token }).then(
+      (r) => r.data
+    ),
 
-  recent: (token: string) => request<{ data: RecentFilePayload[] }>('GET', '/desktop/app/drive/recent', { token }).then((r) => r.data),
+  recent: (token: string) =>
+    request<{ data: RecentFilePayload[] }>('GET', '/desktop/app/drive/recent', { token }).then(
+      (r) => r.data
+    ),
 
-  disconnect: (token: string) => request<{ message: string }>('DELETE', '/desktop/app/session', { token }),
+  disconnect: (token: string) =>
+    request<{ message: string }>('DELETE', '/desktop/app/session', { token })
 }

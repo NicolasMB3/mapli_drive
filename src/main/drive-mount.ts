@@ -44,7 +44,11 @@ function freePort(): Promise<number> {
     server.on('error', reject)
     server.listen(0, '127.0.0.1', () => {
       const address = server.address()
-      server.close(() => (typeof address === 'object' && address ? resolve(address.port) : reject(new Error('Port indisponible'))))
+      server.close(() =>
+        typeof address === 'object' && address
+          ? resolve(address.port)
+          : reject(new Error('Port indisponible'))
+      )
     })
   })
 }
@@ -80,7 +84,9 @@ export class DriveMount {
     try {
       const [core, vfs] = await Promise.all([
         this.rcPost<{ transferring?: Transfer[] }>('core/stats'),
-        this.rcPost<{ diskCache?: { uploadsInProgress?: number; uploadsQueued?: number } }>('vfs/stats'),
+        this.rcPost<{ diskCache?: { uploadsInProgress?: number; uploadsQueued?: number } }>(
+          'vfs/stats'
+        )
       ])
       return {
         transfers: (core.transferring ?? []).map((t) => ({
@@ -88,9 +94,10 @@ export class DriveMount {
           bytes: t.bytes ?? 0,
           size: t.size ?? 0,
           percentage: t.percentage ?? 0,
-          speed: t.speed ?? 0,
+          speed: t.speed ?? 0
         })),
-        pendingUploads: (vfs.diskCache?.uploadsInProgress ?? 0) + (vfs.diskCache?.uploadsQueued ?? 0),
+        pendingUploads:
+          (vfs.diskCache?.uploadsInProgress ?? 0) + (vfs.diskCache?.uploadsQueued ?? 0)
       }
     } catch {
       return { transfers: [], pendingUploads: 0 }
@@ -125,7 +132,7 @@ export class DriveMount {
 
     const exited = await Promise.race([
       new Promise<boolean>((resolve) => proc.once('exit', () => resolve(true))),
-      sleep(5_000).then(() => false),
+      sleep(5_000).then(() => false)
     ])
     if (!exited && !proc.killed) proc.kill()
 
@@ -166,16 +173,19 @@ export class DriveMount {
           '-WindowStyle',
           'Hidden',
           '-Command',
-          `Get-Process rclone -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq '${binary}' } | ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }`,
+          `Get-Process rclone -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq '${binary}' } | ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }`
         ],
-        { windowsHide: true, timeout: 10_000 },
+        { windowsHide: true, timeout: 10_000 }
       )
     } catch {
       // aucun processus
     }
   }
 
-  private async mountWindows(request: MountRequest, onExit?: (code: number | null) => void): Promise<string> {
+  private async mountWindows(
+    request: MountRequest,
+    onExit?: (code: number | null) => void
+  ): Promise<string> {
     const rclone = getRclonePath()
     if (!existsSync(rclone)) {
       throw new Error('L’outil de montage est absent. Réinstallez Mapli Drive.')
@@ -188,7 +198,11 @@ export class DriveMount {
     mkdirSync(cacheDir, { recursive: true })
     const logFile = join(dir, 'rclone.log')
 
-    const rc = { port: await freePort(), user: randomBytes(12).toString('hex'), pass: randomBytes(24).toString('hex') }
+    const rc = {
+      port: await freePort(),
+      user: randomBytes(12).toString('hex'),
+      pass: randomBytes(24).toString('hex')
+    }
     const options = {
       davUrl: request.davUrl,
       token: request.token,
@@ -201,13 +215,13 @@ export class DriveMount {
       cacheSizeGb: request.cacheSizeGb,
       logFile,
       configFile,
-      userAgent: `MapliDrive/${app.getVersion()}`,
+      userAgent: `MapliDrive/${app.getVersion()}`
     }
 
     const proc = spawn(rclone, rcloneMountArgs(options), {
       env: rcloneMountEnv(options),
       windowsHide: true,
-      stdio: 'ignore',
+      stdio: 'ignore'
     })
     this.proc = proc
     this.rc = rc
@@ -248,10 +262,14 @@ export class DriveMount {
       // pas de journal
     }
 
-    if (/winfsp|cgofuse/i.test(log)) return 'Le composant WinFsp est manquant. Réinstallez Mapli Drive.'
-    if (/401|unauthori/i.test(log)) return 'Mapli a refusé la connexion de ce poste. Reliez-le à nouveau.'
-    if (/already in use|mountpoint .* exists|is already mounted/i.test(log)) return 'Cette lettre de lecteur est déjà utilisée. Choisissez-en une autre dans les réglages.'
-    if (/no such host|connection refused|timeout|i\/o timeout/i.test(log)) return 'Mapli est injoignable. Vérifiez votre connexion internet.'
+    if (/winfsp|cgofuse/i.test(log))
+      return 'Le composant WinFsp est manquant. Réinstallez Mapli Drive.'
+    if (/401|unauthori/i.test(log))
+      return 'Mapli a refusé la connexion de ce poste. Reliez-le à nouveau.'
+    if (/already in use|mountpoint .* exists|is already mounted/i.test(log))
+      return 'Cette lettre de lecteur est déjà utilisée. Choisissez-en une autre dans les réglages.'
+    if (/no such host|connection refused|timeout|i\/o timeout/i.test(log))
+      return 'Mapli est injoignable. Vérifiez votre connexion internet.'
 
     return 'Le lecteur n’a pas pu être monté. Réessayez dans un instant.'
   }
@@ -261,7 +279,7 @@ export class DriveMount {
       // Le token part par l'entrée standard d'osascript (jamais dans la liste des processus).
       const script = [
         `set vol to mount volume "${appleScriptString(request.finderUrl)}" as user name "mapli" with password "${appleScriptString(request.token)}"`,
-        'return POSIX path of vol',
+        'return POSIX path of vol'
       ].join('\n')
 
       const proc = spawn('osascript', [], { stdio: ['pipe', 'pipe', 'pipe'] })
@@ -279,7 +297,13 @@ export class DriveMount {
         clearTimeout(timer)
         const path = stdout.trim().replace(/\/+$/, '')
         if (code !== 0 || !path) {
-          reject(new Error(/-128|annul/i.test(stderr) ? 'Montage annulé.' : 'Le lecteur n’a pas pu être monté. Réessayez dans un instant.'))
+          reject(
+            new Error(
+              /-128|annul/i.test(stderr)
+                ? 'Montage annulé.'
+                : 'Le lecteur n’a pas pu être monté. Réessayez dans un instant.'
+            )
+          )
           return
         }
         this.mountedPath = path
@@ -316,21 +340,22 @@ export class DriveMount {
           headers: {
             'Content-Type': 'application/json',
             'Content-Length': Buffer.byteLength(data),
-            Authorization: `Basic ${Buffer.from(`${rc.user}:${rc.pass}`).toString('base64')}`,
-          },
+            Authorization: `Basic ${Buffer.from(`${rc.user}:${rc.pass}`).toString('base64')}`
+          }
         },
         (res) => {
           let raw = ''
           res.on('data', (chunk: Buffer) => (raw += chunk.toString()))
           res.on('end', () => {
-            if ((res.statusCode ?? 500) >= 400) return reject(new Error(`rc ${endpoint}: ${res.statusCode}`))
+            if ((res.statusCode ?? 500) >= 400)
+              return reject(new Error(`rc ${endpoint}: ${res.statusCode}`))
             try {
               resolve(JSON.parse(raw || '{}') as T)
             } catch {
               reject(new Error(`rc ${endpoint}: réponse illisible`))
             }
           })
-        },
+        }
       )
       req.on('timeout', () => req.destroy(new Error(`rc ${endpoint}: délai dépassé`)))
       req.on('error', reject)

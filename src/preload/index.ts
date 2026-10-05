@@ -21,7 +21,7 @@ import {
   IPC_UPDATER_INSTALL,
   IPC_UPDATER_STATUS,
   IPC_WINDOW_CLOSE,
-  IPC_WINDOW_MINIMIZE,
+  IPC_WINDOW_MINIMIZE
 } from '../shared/ipc-channels'
 
 /*
@@ -38,12 +38,13 @@ function subscribe<T>(channel: string, callback: (value: T) => void): () => void
 const api: MapliApi = {
   window: {
     minimize: () => ipcRenderer.send(IPC_WINDOW_MINIMIZE),
-    close: () => ipcRenderer.send(IPC_WINDOW_CLOSE),
+    close: () => ipcRenderer.send(IPC_WINDOW_CLOSE)
   },
   info: (): Promise<AppInfo> => ipcRenderer.invoke(IPC_APP_INFO),
   drive: {
     state: (): Promise<DriveState> => ipcRenderer.invoke(IPC_DRIVE_STATE),
-    onState: (callback: (state: DriveState) => void) => subscribe(IPC_DRIVE_STATE_CHANGED, callback),
+    onState: (callback: (state: DriveState) => void) =>
+      subscribe(IPC_DRIVE_STATE_CHANGED, callback),
     startPairing: (): Promise<void> => ipcRenderer.invoke(IPC_DRIVE_START_PAIRING),
     cancelPairing: (): Promise<void> => ipcRenderer.invoke(IPC_DRIVE_CANCEL_PAIRING),
     openVerification: (): Promise<void> => ipcRenderer.invoke(IPC_DRIVE_OPEN_VERIFICATION),
@@ -52,19 +53,22 @@ const api: MapliApi = {
     pause: (): Promise<void> => ipcRenderer.invoke(IPC_DRIVE_PAUSE),
     resume: (): Promise<void> => ipcRenderer.invoke(IPC_DRIVE_RESUME),
     unpair: (): Promise<void> => ipcRenderer.invoke(IPC_DRIVE_UNPAIR),
-    dismissNotice: (): Promise<void> => ipcRenderer.invoke(IPC_DRIVE_DISMISS_NOTICE),
+    dismissNotice: (): Promise<void> => ipcRenderer.invoke(IPC_DRIVE_DISMISS_NOTICE)
   },
   settings: {
     get: (): Promise<DriveSettings> => ipcRenderer.invoke(IPC_SETTINGS_GET),
-    set: (next: Partial<DriveSettings>): Promise<DriveSettings> => ipcRenderer.invoke(IPC_SETTINGS_SET, next),
-    mountPoints: (): Promise<string[]> => ipcRenderer.invoke(IPC_SETTINGS_MOUNT_POINTS),
+    set: (next: Partial<DriveSettings>): Promise<DriveSettings> =>
+      ipcRenderer.invoke(IPC_SETTINGS_SET, next),
+    mountPoints: (): Promise<string[]> => ipcRenderer.invoke(IPC_SETTINGS_MOUNT_POINTS)
   },
   updater: {
-    status: (): Promise<{ status: UpdateStatus; version?: string }> => ipcRenderer.invoke(IPC_UPDATER_STATUS),
-    onStatus: (callback: (status: { status: UpdateStatus; version?: string }) => void) => subscribe(IPC_UPDATER_STATUS, callback),
+    status: (): Promise<{ status: UpdateStatus; version?: string }> =>
+      ipcRenderer.invoke(IPC_UPDATER_STATUS),
+    onStatus: (callback: (status: { status: UpdateStatus; version?: string }) => void) =>
+      subscribe(IPC_UPDATER_STATUS, callback),
     check: (): Promise<void> => ipcRenderer.invoke(IPC_UPDATER_CHECK),
-    install: (): Promise<void> => ipcRenderer.invoke(IPC_UPDATER_INSTALL),
-  },
+    install: (): Promise<void> => ipcRenderer.invoke(IPC_UPDATER_INSTALL)
+  }
 }
 
 contextBridge.exposeInMainWorld('mapli', api)

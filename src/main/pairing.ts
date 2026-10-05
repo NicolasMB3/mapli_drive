@@ -37,13 +37,16 @@ export class PairingFlow {
     this.stop()
     this.cancelled = false
 
-    const started = await api.startPairing(PairingFlow.deviceName(), process.platform === 'darwin' ? 'macos' : 'windows')
+    const started = await api.startPairing(
+      PairingFlow.deviceName(),
+      process.platform === 'darwin' ? 'macos' : 'windows'
+    )
     this.active = started
     this.info = {
       code: started.device_code,
       url: started.verification_url_complete,
       expiresAt: Date.now() + started.expires_in * 1000,
-      status: 'waiting',
+      status: 'waiting'
     }
     this.schedule()
 
@@ -84,12 +87,16 @@ export class PairingFlow {
         this.callbacks.onApproved({
           token: result.token,
           user: result.user,
-          organization: result.organization ?? { id: '', name: 'Mapli' },
+          organization: result.organization ?? { id: '', name: 'Mapli' }
         })
         return
       }
 
-      if (result.status === 'denied' || result.status === 'expired' || result.status === 'claimed') {
+      if (
+        result.status === 'denied' ||
+        result.status === 'expired' ||
+        result.status === 'claimed'
+      ) {
         this.finish({ ...this.info, status: result.status === 'denied' ? 'denied' : 'expired' })
         return
       }

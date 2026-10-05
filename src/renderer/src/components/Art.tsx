@@ -1,7 +1,13 @@
 import { cn } from '../lib/cn'
 
 /** Monogramme Mapli (le M en enveloppe), orange de la marque par défaut. */
-export function MapliMark({ className, color = '#DF7A45' }: { className?: string; color?: string }) {
+export function MapliMark({
+  className,
+  color = '#DF7A45'
+}: {
+  className?: string
+  color?: string
+}) {
   return (
     <svg viewBox="0 0 32 20" className={cn('block', className)} aria-hidden="true">
       <path
@@ -18,18 +24,63 @@ const INK = '#121212'
  * Gros plan du Coffre-fort (le même que sur app.mapli.fr) : un dossier classé, ses
  * pièces qui dépassent, le cadenas du chiffrement — posé de biais, à fond perdu.
  */
-export function CoffreCloseUp({ className, align = 'xMidYMid' }: { className?: string; align?: 'xMidYMid' | 'xMinYMid' | 'xMidYMin' }) {
+export function CoffreCloseUp({
+  className,
+  align = 'xMidYMid'
+}: {
+  className?: string
+  align?: 'xMidYMid' | 'xMinYMid' | 'xMidYMin'
+}) {
   const c = '#6B57F5'
   return (
-    <svg viewBox="0 0 400 260" preserveAspectRatio={`${align} slice`} className={cn('block', className)} aria-hidden="true">
+    <svg
+      viewBox="0 0 400 260"
+      preserveAspectRatio={`${align} slice`}
+      className={cn('block', className)}
+      aria-hidden="true"
+    >
       <g transform="rotate(-5 200 150)">
-        <rect x="112" y="44" width="176" height="118" rx="4" fill="#fff" stroke={INK} strokeOpacity={0.14} transform="rotate(-7 200 103)" />
-        <rect x="146" y="36" width="176" height="118" rx="4" fill="#fff" stroke={INK} strokeOpacity={0.14} transform="rotate(6 234 95)" />
+        <rect
+          x="112"
+          y="44"
+          width="176"
+          height="118"
+          rx="4"
+          fill="#fff"
+          stroke={INK}
+          strokeOpacity={0.14}
+          transform="rotate(-7 200 103)"
+        />
+        <rect
+          x="146"
+          y="36"
+          width="176"
+          height="118"
+          rx="4"
+          fill="#fff"
+          stroke={INK}
+          strokeOpacity={0.14}
+          transform="rotate(6 234 95)"
+        />
         <path d="M60 104a6 6 0 0 1 6-6h86l16 18h262a6 6 0 0 1 6 6v210H60z" fill="#fff" />
-        <text x="84" y="152" fontSize="15" fontWeight={600} fill={INK} fontFamily="Geist Variable, sans-serif">
+        <text
+          x="84"
+          y="152"
+          fontSize="15"
+          fontWeight={600}
+          fill={INK}
+          fontFamily="Geist Variable, sans-serif"
+        >
           Contrats
         </text>
-        <text x="84" y="171" fontSize="12" fill={INK} opacity={0.5} fontFamily="Geist Variable, sans-serif">
+        <text
+          x="84"
+          y="171"
+          fontSize="12"
+          fill={INK}
+          opacity={0.5}
+          fontFamily="Geist Variable, sans-serif"
+        >
           12 documents · chiffrés
         </text>
         <rect x="84" y="196" width="160" height="5" rx="1" fill={INK} opacity={0.16} />

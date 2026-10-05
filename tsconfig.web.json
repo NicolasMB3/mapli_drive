@@ -11,20 +11,12 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "outDir": "./node_modules/.tmp/tsc-web",
-    "types": [
-      "node"
-    ],
+    "types": ["node"],
     "paths": {
-      "@shared/*": [
-        "./src/shared/*"
-      ]
+      "@shared/*": ["./src/shared/*"]
     },
     "emitDeclarationOnly": true,
     "declaration": true
   },
-  "include": [
-    "src/renderer/src/**/*.ts",
-    "src/renderer/src/**/*.tsx",
-    "src/shared/**/*.ts"
-  ]
+  "include": ["src/renderer/src/**/*.ts", "src/renderer/src/**/*.tsx", "src/shared/**/*.ts"]
 }

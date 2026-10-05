@@ -68,11 +68,14 @@ export function rcloneMountArgs(o: MountOptions): string[] {
     '--log-file',
     o.logFile,
     '--log-level',
-    'INFO',
+    'INFO'
   ]
 }
 
-export function rcloneMountEnv(o: MountOptions, base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+export function rcloneMountEnv(
+  o: MountOptions,
+  base: NodeJS.ProcessEnv = process.env
+): NodeJS.ProcessEnv {
   return {
     ...base,
     RCLONE_CONFIG: o.configFile,
@@ -81,6 +84,6 @@ export function rcloneMountEnv(o: MountOptions, base: NodeJS.ProcessEnv = proces
     RCLONE_WEBDAV_VENDOR: 'owncloud',
     RCLONE_WEBDAV_BEARER_TOKEN: o.token,
     RCLONE_RC_USER: o.rcUser,
-    RCLONE_RC_PASS: o.rcPass,
+    RCLONE_RC_PASS: o.rcPass
   }
 }

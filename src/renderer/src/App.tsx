@@ -24,7 +24,10 @@ export default function App() {
 
   return (
     <div className="flex h-full flex-col bg-surface">
-      <Titlebar onSettings={paired ? () => setView(view === 'settings' ? 'drive' : 'settings') : undefined} settingsOpen={view === 'settings'} />
+      <Titlebar
+        onSettings={paired ? () => setView(view === 'settings' ? 'drive' : 'settings') : undefined}
+        settingsOpen={view === 'settings'}
+      />
       {!paired ? (
         <PairingScreen state={state} />
       ) : view === 'settings' ? (

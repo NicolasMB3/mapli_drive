@@ -21,7 +21,7 @@ import {
   IPC_UPDATER_INSTALL,
   IPC_UPDATER_STATUS,
   IPC_WINDOW_CLOSE,
-  IPC_WINDOW_MINIMIZE,
+  IPC_WINDOW_MINIMIZE
 } from '../shared/ipc-channels'
 import { APP_ID, WEB_URL } from './config'
 import { DriveController } from './controller'
@@ -56,8 +56,8 @@ function createWindow(): BrowserWindow {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true,
-    },
+      sandbox: true
+    }
   })
 
   if (process.env.ELECTRON_RENDERER_URL) {
@@ -100,7 +100,11 @@ function showWindow(): void {
 ipcMain.on(IPC_WINDOW_MINIMIZE, () => mainWindow?.minimize())
 ipcMain.on(IPC_WINDOW_CLOSE, () => mainWindow?.hide())
 
-ipcMain.handle(IPC_APP_INFO, () => ({ version: app.getVersion(), platform: process.platform, webUrl: WEB_URL }))
+ipcMain.handle(IPC_APP_INFO, () => ({
+  version: app.getVersion(),
+  platform: process.platform,
+  webUrl: WEB_URL
+}))
 
 ipcMain.handle(IPC_DRIVE_STATE, () => controller.state)
 ipcMain.handle(IPC_DRIVE_START_PAIRING, () => controller.startPairing())
@@ -115,7 +119,7 @@ ipcMain.handle(IPC_DRIVE_DISMISS_NOTICE, () => controller.dismissNotice())
 
 ipcMain.handle(IPC_SETTINGS_GET, () => ({
   ...controller.getSettings(),
-  autoStart: app.getLoginItemSettings().openAtLogin,
+  autoStart: app.getLoginItemSettings().openAtLogin
 }))
 ipcMain.handle(IPC_SETTINGS_SET, async (_event, next: Partial<DriveSettings>) => {
   if (typeof next.autoStart === 'boolean' && app.isPackaged) {
@@ -124,7 +128,9 @@ ipcMain.handle(IPC_SETTINGS_SET, async (_event, next: Partial<DriveSettings>) =>
   const settings = await controller.setSettings(next)
   return { ...settings, autoStart: app.getLoginItemSettings().openAtLogin }
 })
-ipcMain.handle(IPC_SETTINGS_MOUNT_POINTS, () => availableDriveLetters(controller.getSettings().mountPoint))
+ipcMain.handle(IPC_SETTINGS_MOUNT_POINTS, () =>
+  availableDriveLetters(controller.getSettings().mountPoint)
+)
 
 ipcMain.handle(IPC_UPDATER_CHECK, () => checkForUpdates())
 ipcMain.handle(IPC_UPDATER_STATUS, () => currentUpdateStatus())
@@ -134,7 +140,8 @@ ipcMain.handle(IPC_UPDATER_INSTALL, () => {
 })
 
 controller.on('state', (state) => {
-  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(IPC_DRIVE_STATE_CHANGED, state)
+  if (mainWindow && !mainWindow.isDestroyed())
+    mainWindow.webContents.send(IPC_DRIVE_STATE_CHANGED, state)
 })
 
 // ── Cycle de vie ──────────────────────────────────────────
@@ -158,7 +165,8 @@ if (!app.requestSingleInstanceLock()) {
     await controller.init()
 
     // Premier lancement ou poste non relié : on montre la fenêtre (appairage).
-    if (controller.state.phase === 'unpaired' || !app.getLoginItemSettings().wasOpenedAtLogin) showWindow()
+    if (controller.state.phase === 'unpaired' || !app.getLoginItemSettings().wasOpenedAtLogin)
+      showWindow()
   })
 }
 

@@ -42,20 +42,23 @@ export function loadDevice(): Device | null {
 
 export function saveDevice(device: Device): void {
   if (!safeStorage.isEncryptionAvailable()) {
-    throw new Error('Le chiffrement du système est indisponible : impossible de garder la connexion de ce poste.')
+    throw new Error(
+      'Le chiffrement du système est indisponible : impossible de garder la connexion de ce poste.'
+    )
   }
 
   store.set('device', {
     token: safeStorage.encryptString(device.token).toString('base64'),
     organization: device.organization,
     user: device.user,
-    pairedAt: new Date().toISOString(),
+    pairedAt: new Date().toISOString()
   })
 }
 
 export function updateDeviceContext(context: DeviceInfo): void {
   const device = store.get('device')
-  if (device) store.set('device', { ...device, organization: context.organization, user: context.user })
+  if (device)
+    store.set('device', { ...device, organization: context.organization, user: context.user })
 }
 
 export function clearDevice(): void {
@@ -67,7 +70,7 @@ export function loadSettings(): DriveSettings {
   return {
     mountPoint: saved.mountPoint || defaultMountPoint(),
     autoStart: saved.autoStart ?? true,
-    cacheSizeGb: saved.cacheSizeGb ?? 10,
+    cacheSizeGb: saved.cacheSizeGb ?? 10
   }
 }
 

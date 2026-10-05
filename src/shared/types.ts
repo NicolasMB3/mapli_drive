@@ -79,7 +79,14 @@ export interface DriveSettings {
   cacheSizeGb: number
 }
 
-export type UpdateStatus = 'idle' | 'checking' | 'up-to-date' | 'available' | 'downloading' | 'ready' | 'error'
+export type UpdateStatus =
+  | 'idle'
+  | 'checking'
+  | 'up-to-date'
+  | 'available'
+  | 'downloading'
+  | 'ready'
+  | 'error'
 
 export interface AppInfo {
   version: string

@@ -6,7 +6,9 @@ export const IS_WIN = process.platform === 'win32'
 export const IS_MAC = process.platform === 'darwin'
 
 function resource(name: string): string {
-  return app.isPackaged ? join(process.resourcesPath, 'resources', name) : join(__dirname, '../../resources', name)
+  return app.isPackaged
+    ? join(process.resourcesPath, 'resources', name)
+    : join(__dirname, '../../resources', name)
 }
 
 export function getRclonePath(): string {

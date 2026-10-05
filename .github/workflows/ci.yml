@@ -1,6 +1,6 @@
 name: CI
 
-# Lint, types et tests à chaque envoi : rien ne part en release sans une suite verte.
+# Lint, formatage, types et tests à chaque envoi : rien ne part en release sans une suite verte.
 on:
   push:
     branches: [dev, main]
@@ -19,6 +19,7 @@ jobs:
 
       - run: npm ci
       - run: npm run lint
+      - run: npm run format:check
       - run: npm run typecheck
       - run: npm test
       - run: npx electron-vite build

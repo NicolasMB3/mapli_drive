@@ -6,7 +6,15 @@ import { WEB_URL } from './config'
 import { DriveMount } from './drive-mount'
 import { PairingFlow } from './pairing'
 import { mountPathForOpen } from './platform'
-import { clearDevice, loadDevice, loadSettings, saveDevice, saveSettings, updateDeviceContext, type Device } from './session'
+import {
+  clearDevice,
+  loadDevice,
+  loadSettings,
+  saveDevice,
+  saveSettings,
+  updateDeviceContext,
+  type Device
+} from './session'
 
 /*
  * Le cœur de Mapli Drive : relie le poste (appairage), monte le lecteur, le garde en
@@ -33,7 +41,7 @@ export class DriveController extends EventEmitter {
   private readonly pairing = new PairingFlow({
     onUpdate: (pairing) => this.update({ pairing }),
     onApproved: (result) => void this.onPaired(result),
-    onError: (message) => this.update({ error: message }),
+    onError: (message) => this.update({ error: message })
   })
 
   state: DriveState = {
@@ -48,7 +56,7 @@ export class DriveController extends EventEmitter {
     pendingUploads: 0,
     recent: [],
     error: null,
-    notice: null,
+    notice: null
   }
 
   async init(): Promise<void> {
@@ -100,7 +108,11 @@ export class DriveController extends EventEmitter {
     }
   }
 
-  private async onPaired(result: { token: string; organization: { id: string; name: string }; user: Device['user'] }): Promise<void> {
+  private async onPaired(result: {
+    token: string
+    organization: { id: string; name: string }
+    user: Device['user']
+  }): Promise<void> {
     try {
       saveDevice({ token: result.token, organization: result.organization, user: result.user })
     } catch (error) {
@@ -111,7 +123,7 @@ export class DriveController extends EventEmitter {
     this.update({
       pairing: null,
       device: { organization: result.organization, user: result.user },
-      notice: null,
+      notice: null
     })
     await this.connect()
   }
@@ -129,7 +141,10 @@ export class DriveController extends EventEmitter {
       this.applyStatus(status)
 
       if (!status.permissions.view) {
-        this.update({ phase: 'error', error: `Vous n’avez pas accès au coffre-fort de ${status.organization.name}. Demandez l’accès à un administrateur.` })
+        this.update({
+          phase: 'error',
+          error: `Vous n’avez pas accès au coffre-fort de ${status.organization.name}. Demandez l’accès à un administrateur.`
+        })
         return
       }
 
@@ -139,9 +154,9 @@ export class DriveController extends EventEmitter {
           finderUrl: status.finder_url,
           token: this.device.token,
           mountPoint: this.settings.mountPoint,
-          cacheSizeGb: this.settings.cacheSizeGb,
+          cacheSizeGb: this.settings.cacheSizeGb
         },
-        (code) => this.onMountExit(code),
+        (code) => this.onMountExit(code)
       )
 
       this.retryCount = 0
@@ -201,8 +216,10 @@ export class DriveController extends EventEmitter {
     this.settings = saveSettings(next)
     this.update({ mountPoint: this.settings.mountPoint })
 
-    const remount = this.state.phase === 'connected'
-      && (previous.mountPoint !== this.settings.mountPoint || previous.cacheSizeGb !== this.settings.cacheSizeGb)
+    const remount =
+      this.state.phase === 'connected' &&
+      (previous.mountPoint !== this.settings.mountPoint ||
+        previous.cacheSizeGb !== this.settings.cacheSizeGb)
     if (remount) {
       await this.mount.unmount()
       await this.connect()
@@ -237,8 +254,8 @@ export class DriveController extends EventEmitter {
         limitBytes: status.storage.limit_bytes,
         trashBytes: status.storage.trash_bytes,
         memberUsedBytes: status.storage.member_used_bytes,
-        memberLimitBytes: status.storage.member_limit_bytes,
-      },
+        memberLimitBytes: status.storage.member_limit_bytes
+      }
     })
   }
 
@@ -256,7 +273,11 @@ export class DriveController extends EventEmitter {
     }
 
     const offline = error instanceof NetworkError
-    this.update({ phase: offline ? 'offline' : 'error', mounted: false, error: this.message(error) })
+    this.update({
+      phase: offline ? 'offline' : 'error',
+      mounted: false,
+      error: this.message(error)
+    })
     this.scheduleRetry()
   }
 
@@ -273,14 +294,18 @@ export class DriveController extends EventEmitter {
       pendingUploads: 0,
       recent: [],
       error: null,
-      notice,
+      notice
     })
   }
 
   private onMountExit(code: number | null): void {
     // Arrêt inattendu de rclone : on remonte (avec temporisation).
     if (this.state.phase === 'connected') {
-      this.update({ phase: 'offline', mounted: false, error: code ? 'Le lecteur s’est arrêté. Reconnexion…' : null })
+      this.update({
+        phase: 'offline',
+        mounted: false,
+        error: code ? 'Le lecteur s’est arrêté. Reconnexion…' : null
+      })
       this.scheduleRetry()
     }
   }
@@ -293,7 +318,11 @@ export class DriveController extends EventEmitter {
   }
 
   private async reconnectIfNeeded(): Promise<void> {
-    if (this.device && (this.state.phase === 'offline' || (this.state.phase === 'connected' && !this.mount.isMounted()))) {
+    if (
+      this.device &&
+      (this.state.phase === 'offline' ||
+        (this.state.phase === 'connected' && !this.mount.isMounted()))
+    ) {
       await this.connect()
     }
   }

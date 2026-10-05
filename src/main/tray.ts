@@ -18,7 +18,7 @@ const VARIANT: Record<string, 'ok' | 'busy' | 'error' | null> = {
   paused: 'busy',
   offline: 'error',
   error: 'error',
-  unpaired: null,
+  unpaired: null
 }
 
 export function createTray(controller: DriveController, showWindow: () => void): Tray {
@@ -27,7 +27,8 @@ export function createTray(controller: DriveController, showWindow: () => void):
   const iconFor = (phase: string): Electron.NativeImage => {
     const variant = VARIANT[phase] ?? null
     if (!variant || IS_MAC) return base
-    if (!icons.has(variant)) icons.set(variant, nativeImage.createFromPath(getTrayIconPath(variant)))
+    if (!icons.has(variant))
+      icons.set(variant, nativeImage.createFromPath(getTrayIconPath(variant)))
     return icons.get(variant)!
   }
 
@@ -37,7 +38,9 @@ export function createTray(controller: DriveController, showWindow: () => void):
   const label = (state: DriveState): string => {
     switch (state.phase) {
       case 'connected':
-        return state.transfers.length > 0 ? `Envoi en cours (${state.transfers.length})` : `Lecteur ${state.mountPoint} · à jour`
+        return state.transfers.length > 0
+          ? `Envoi en cours (${state.transfers.length})`
+          : `Lecteur ${state.mountPoint} · à jour`
       case 'connecting':
         return 'Connexion du lecteur…'
       case 'pairing':
@@ -59,22 +62,40 @@ export function createTray(controller: DriveController, showWindow: () => void):
 
     tray.setContextMenu(
       Menu.buildFromTemplate([
-        { label: state.device ? `${PRODUCT_NAME} · ${state.device.organization.name}` : PRODUCT_NAME, enabled: false },
+        {
+          label: state.device
+            ? `${PRODUCT_NAME} · ${state.device.organization.name}`
+            : PRODUCT_NAME,
+          enabled: false
+        },
         { label: label(state), enabled: false },
         { type: 'separator' },
         ...(state.phase === 'connected'
-          ? [{ label: `Ouvrir le lecteur ${state.mountPoint}`, click: () => controller.openDrive() }]
+          ? [
+              {
+                label: `Ouvrir le lecteur ${state.mountPoint}`,
+                click: () => controller.openDrive()
+              }
+            ]
           : []),
         { label: `Ouvrir ${PRODUCT_NAME}`, click: showWindow },
-        ...(state.device ? [{ label: 'Coffre-fort sur le web', click: () => controller.openWeb() }] : []),
+        ...(state.device
+          ? [{ label: 'Coffre-fort sur le web', click: () => controller.openWeb() }]
+          : []),
         ...(state.phase === 'connected'
-          ? [{ type: 'separator' as const }, { label: 'Mettre en pause', click: () => void controller.pause() }]
+          ? [
+              { type: 'separator' as const },
+              { label: 'Mettre en pause', click: () => void controller.pause() }
+            ]
           : state.phase === 'paused' || state.phase === 'offline'
-            ? [{ type: 'separator' as const }, { label: 'Reprendre', click: () => void controller.resume() }]
+            ? [
+                { type: 'separator' as const },
+                { label: 'Reprendre', click: () => void controller.resume() }
+              ]
             : []),
         { type: 'separator' },
-        { label: 'Quitter', click: () => app.quit() },
-      ]),
+        { label: 'Quitter', click: () => app.quit() }
+      ])
     )
   }
 

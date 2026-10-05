@@ -11,7 +11,7 @@ function mockState(): DriveState {
   const scenario = new URLSearchParams(window.location.search).get('etat') ?? 'connecte'
   const device = {
     organization: { id: 'org', name: 'Maison Verdier' },
-    user: { first_name: 'Julie', last_name: 'Martin', email: 'julie@maison-verdier.fr' },
+    user: { first_name: 'Julie', last_name: 'Martin', email: 'julie@maison-verdier.fr' }
   }
   const base: DriveState = {
     phase: 'connected',
@@ -19,27 +19,97 @@ function mockState(): DriveState {
     device,
     mountPoint: 'M:',
     mounted: true,
-    storage: { usedBytes: 13.3e9, limitBytes: 53.7e9, trashBytes: 1.2e9, memberUsedBytes: 0, memberLimitBytes: null },
+    storage: {
+      usedBytes: 13.3e9,
+      limitBytes: 53.7e9,
+      trashBytes: 1.2e9,
+      memberUsedBytes: 0,
+      memberLimitBytes: null
+    },
     permissions: { view: true, upload: true, delete: true, manage_folders: true },
     transfers: [],
     pendingUploads: 0,
     recent: [
-      { id: '1', name: 'Devis-Lenoir.pdf', folder: 'Clients', size_bytes: 248_000, mine: true, created_at: new Date(Date.now() - 4 * 60_000).toISOString() },
-      { id: '2', name: 'Façade nord.jpg', folder: 'Chantier Grasse', size_bytes: 3_200_000, mine: false, created_at: new Date(Date.now() - 38 * 60_000).toISOString() },
-      { id: '3', name: 'Planning chantier.xlsx', folder: 'Chantier Grasse', size_bytes: 61_000, mine: false, created_at: new Date(Date.now() - 2 * 3600_000).toISOString() },
-      { id: '4', name: 'Compte rendu réunion.docx', folder: null, size_bytes: 34_000, mine: true, created_at: new Date(Date.now() - 5 * 3600_000).toISOString() },
-      { id: '5', name: 'Présentation client.pptx', folder: 'Clients', size_bytes: 4_800_000, mine: true, created_at: new Date(Date.now() - 7 * 3600_000).toISOString() },
-      { id: '6', name: 'Photos réception.zip', folder: null, size_bytes: 82_000_000, mine: true, created_at: new Date(Date.now() - 26 * 3600_000).toISOString() },
-      { id: '7', name: 'Visite chantier.mp4', folder: 'Chantier Grasse', size_bytes: 148_000_000, mine: false, created_at: new Date(Date.now() - 50 * 3600_000).toISOString() },
-      { id: '8', name: 'Message répondeur.m4a', folder: null, size_bytes: 920_000, mine: false, created_at: new Date(Date.now() - 74 * 3600_000).toISOString() },
+      {
+        id: '1',
+        name: 'Devis-Lenoir.pdf',
+        folder: 'Clients',
+        size_bytes: 248_000,
+        mine: true,
+        created_at: new Date(Date.now() - 4 * 60_000).toISOString()
+      },
+      {
+        id: '2',
+        name: 'Façade nord.jpg',
+        folder: 'Chantier Grasse',
+        size_bytes: 3_200_000,
+        mine: false,
+        created_at: new Date(Date.now() - 38 * 60_000).toISOString()
+      },
+      {
+        id: '3',
+        name: 'Planning chantier.xlsx',
+        folder: 'Chantier Grasse',
+        size_bytes: 61_000,
+        mine: false,
+        created_at: new Date(Date.now() - 2 * 3600_000).toISOString()
+      },
+      {
+        id: '4',
+        name: 'Compte rendu réunion.docx',
+        folder: null,
+        size_bytes: 34_000,
+        mine: true,
+        created_at: new Date(Date.now() - 5 * 3600_000).toISOString()
+      },
+      {
+        id: '5',
+        name: 'Présentation client.pptx',
+        folder: 'Clients',
+        size_bytes: 4_800_000,
+        mine: true,
+        created_at: new Date(Date.now() - 7 * 3600_000).toISOString()
+      },
+      {
+        id: '6',
+        name: 'Photos réception.zip',
+        folder: null,
+        size_bytes: 82_000_000,
+        mine: true,
+        created_at: new Date(Date.now() - 26 * 3600_000).toISOString()
+      },
+      {
+        id: '7',
+        name: 'Visite chantier.mp4',
+        folder: 'Chantier Grasse',
+        size_bytes: 148_000_000,
+        mine: false,
+        created_at: new Date(Date.now() - 50 * 3600_000).toISOString()
+      },
+      {
+        id: '8',
+        name: 'Message répondeur.m4a',
+        folder: null,
+        size_bytes: 920_000,
+        mine: false,
+        created_at: new Date(Date.now() - 74 * 3600_000).toISOString()
+      }
     ],
     error: null,
-    notice: null,
+    notice: null
   }
 
   switch (scenario) {
     case 'nouveau':
-      return { ...base, phase: 'unpaired', device: null, mounted: false, storage: null, permissions: null, recent: [] }
+      return {
+        ...base,
+        phase: 'unpaired',
+        device: null,
+        mounted: false,
+        storage: null,
+        permissions: null,
+        recent: []
+      }
     case 'appairage':
       return {
         ...base,
@@ -48,7 +118,12 @@ function mockState(): DriveState {
         mounted: false,
         storage: null,
         recent: [],
-        pairing: { code: 'MAPL-4F7K', url: 'https://app.mapli.fr/link-device?code=MAPL-4F7K', expiresAt: Date.now() + 14 * 60_000, status: 'waiting' },
+        pairing: {
+          code: 'MAPL-4F7K',
+          url: 'https://app.mapli.fr/link-device?code=MAPL-4F7K',
+          expiresAt: Date.now() + 14 * 60_000,
+          status: 'waiting'
+        }
       }
     case 'expire':
       return {
@@ -58,27 +133,52 @@ function mockState(): DriveState {
         mounted: false,
         storage: null,
         recent: [],
-        pairing: { code: 'MAPL-4F7K', url: '', expiresAt: Date.now(), status: 'expired' },
+        pairing: { code: 'MAPL-4F7K', url: '', expiresAt: Date.now(), status: 'expired' }
       }
     case 'envoi':
       return {
         ...base,
         pendingUploads: 2,
         transfers: [
-          { name: 'Photos-chantier/IMG_2041.jpg', bytes: 2_400_000, size: 5_000_000, percentage: 48, speed: 1_200_000 },
-          { name: 'Planning.xlsx', bytes: 12_000, size: 61_000, percentage: 20, speed: 40_000 },
-        ],
+          {
+            name: 'Photos-chantier/IMG_2041.jpg',
+            bytes: 2_400_000,
+            size: 5_000_000,
+            percentage: 48,
+            speed: 1_200_000
+          },
+          { name: 'Planning.xlsx', bytes: 12_000, size: 61_000, percentage: 20, speed: 40_000 }
+        ]
       }
     case 'vide':
       return { ...base, storage: { ...base.storage!, usedBytes: 0, trashBytes: 0 }, recent: [] }
     case 'pause':
       return { ...base, phase: 'paused', mounted: false }
     case 'hors-ligne':
-      return { ...base, phase: 'offline', mounted: false, error: 'Mapli est injoignable. Vérifiez votre connexion internet.' }
+      return {
+        ...base,
+        phase: 'offline',
+        mounted: false,
+        error: 'Mapli est injoignable. Vérifiez votre connexion internet.'
+      }
     case 'erreur':
-      return { ...base, phase: 'error', mounted: false, error: 'Vous n’avez pas accès au coffre-fort de Maison Verdier. Demandez l’accès à un administrateur.' }
+      return {
+        ...base,
+        phase: 'error',
+        mounted: false,
+        error:
+          'Vous n’avez pas accès au coffre-fort de Maison Verdier. Demandez l’accès à un administrateur.'
+      }
     case 'deconnecte':
-      return { ...base, phase: 'unpaired', device: null, mounted: false, storage: null, recent: [], notice: 'Ce poste a été déconnecté de Mapli. Reliez-le pour retrouver le lecteur.' }
+      return {
+        ...base,
+        phase: 'unpaired',
+        device: null,
+        mounted: false,
+        storage: null,
+        recent: [],
+        notice: 'Ce poste a été déconnecté de Mapli. Reliez-le pour retrouver le lecteur.'
+      }
     default:
       return base
   }
@@ -104,7 +204,15 @@ function createMock(): MapliApi {
         return () => listeners.delete(callback)
       },
       startPairing: async () =>
-        set({ phase: 'pairing', pairing: { code: 'MAPL-4F7K', url: '', expiresAt: Date.now() + 15 * 60_000, status: 'waiting' } }),
+        set({
+          phase: 'pairing',
+          pairing: {
+            code: 'MAPL-4F7K',
+            url: '',
+            expiresAt: Date.now() + 15 * 60_000,
+            status: 'waiting'
+          }
+        }),
       cancelPairing: async () => set({ phase: 'unpaired', pairing: null }),
       openVerification: noop,
       open: noop,
@@ -112,19 +220,19 @@ function createMock(): MapliApi {
       pause: async () => set({ phase: 'paused', mounted: false }),
       resume: async () => set({ phase: 'connected', mounted: true, error: null }),
       unpair: async () => set({ phase: 'unpaired', device: null, mounted: false }),
-      dismissNotice: async () => set({ notice: null }),
+      dismissNotice: async () => set({ notice: null })
     },
     settings: {
       get: async () => settings,
       set: async (next) => (settings = { ...settings, ...next }),
-      mountPoints: async () => ['D:', 'E:', 'M:', 'P:', 'Z:'],
+      mountPoints: async () => ['D:', 'E:', 'M:', 'P:', 'Z:']
     },
     updater: {
       status: async () => ({ status: 'up-to-date' as const }),
       onStatus: () => () => {},
       check: noop,
-      install: noop,
-    },
+      install: noop
+    }
   }
 }
 

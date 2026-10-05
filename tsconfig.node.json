@@ -10,9 +10,7 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "outDir": "./node_modules/.tmp/tsc-node",
-    "types": [
-      "node"
-    ],
+    "types": ["node"],
     "emitDeclarationOnly": true,
     "declaration": true
   },

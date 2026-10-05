@@ -13,7 +13,7 @@ const options: MountOptions = {
   cacheSizeGb: 10,
   logFile: 'C:/Users/julie/AppData/Roaming/Mapli Drive/rclone.log',
   configFile: 'C:/Users/julie/AppData/Roaming/Mapli Drive/rclone.conf',
-  userAgent: 'MapliDrive/3.0.0',
+  userAgent: 'MapliDrive/3.0.0'
 }
 
 describe('montage rclone', () => {
@@ -41,7 +41,7 @@ describe('montage rclone', () => {
       RCLONE_WEBDAV_BEARER_TOKEN: '42|secret-du-poste',
       RCLONE_RC_USER: 'rc-user',
       RCLONE_RC_PASS: 'rc-pass-aleatoire',
-      RCLONE_CONFIG: options.configFile,
+      RCLONE_CONFIG: options.configFile
     })
   })
 
