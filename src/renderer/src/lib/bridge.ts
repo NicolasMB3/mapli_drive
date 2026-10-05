@@ -3,8 +3,8 @@ import type { DriveSettings, DriveState } from '@shared/types'
 
 /*
  * Accès au processus principal. Hors Electron (aperçu de l'interface dans un navigateur,
- * pour la mise au point), une maquette simule les états : ?etat=appairage, connecte,
- * envoi, pause, hors-ligne, erreur, nouveau.
+ * pour la mise au point), une maquette simule les états : ?etat=appairage, expire,
+ * connecte, vide, envoi, pause, hors-ligne, erreur, deconnecte, nouveau.
  */
 
 function mockState(): DriveState {
@@ -25,8 +25,13 @@ function mockState(): DriveState {
     pendingUploads: 0,
     recent: [
       { id: '1', name: 'Devis-Lenoir.pdf', folder: 'Clients', size_bytes: 248_000, mine: true, created_at: new Date(Date.now() - 4 * 60_000).toISOString() },
-      { id: '2', name: 'Planning chantier.xlsx', folder: 'Chantier Grasse', size_bytes: 61_000, mine: false, created_at: new Date(Date.now() - 2 * 3600_000).toISOString() },
-      { id: '3', name: 'Photos réception.zip', folder: null, size_bytes: 82_000_000, mine: true, created_at: new Date(Date.now() - 26 * 3600_000).toISOString() },
+      { id: '2', name: 'Façade nord.jpg', folder: 'Chantier Grasse', size_bytes: 3_200_000, mine: false, created_at: new Date(Date.now() - 38 * 60_000).toISOString() },
+      { id: '3', name: 'Planning chantier.xlsx', folder: 'Chantier Grasse', size_bytes: 61_000, mine: false, created_at: new Date(Date.now() - 2 * 3600_000).toISOString() },
+      { id: '4', name: 'Compte rendu réunion.docx', folder: null, size_bytes: 34_000, mine: true, created_at: new Date(Date.now() - 5 * 3600_000).toISOString() },
+      { id: '5', name: 'Présentation client.pptx', folder: 'Clients', size_bytes: 4_800_000, mine: true, created_at: new Date(Date.now() - 7 * 3600_000).toISOString() },
+      { id: '6', name: 'Photos réception.zip', folder: null, size_bytes: 82_000_000, mine: true, created_at: new Date(Date.now() - 26 * 3600_000).toISOString() },
+      { id: '7', name: 'Visite chantier.mp4', folder: 'Chantier Grasse', size_bytes: 148_000_000, mine: false, created_at: new Date(Date.now() - 50 * 3600_000).toISOString() },
+      { id: '8', name: 'Message répondeur.m4a', folder: null, size_bytes: 920_000, mine: false, created_at: new Date(Date.now() - 74 * 3600_000).toISOString() },
     ],
     error: null,
     notice: null,
@@ -64,6 +69,8 @@ function mockState(): DriveState {
           { name: 'Planning.xlsx', bytes: 12_000, size: 61_000, percentage: 20, speed: 40_000 },
         ],
       }
+    case 'vide':
+      return { ...base, storage: { ...base.storage!, usedBytes: 0, trashBytes: 0 }, recent: [] }
     case 'pause':
       return { ...base, phase: 'paused', mounted: false }
     case 'hors-ligne':

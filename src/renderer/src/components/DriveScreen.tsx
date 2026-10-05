@@ -1,6 +1,7 @@
-import { ArrowUpRight, ExternalLink, File, FileText, Folder, Loader2, Pause, Play, RotateCcw, Settings, Upload } from 'lucide-react'
+import { ArrowUpRight, ExternalLink, Folder, Loader2, Pause, Play, RotateCcw, Settings } from 'lucide-react'
 import type { AppInfo, DriveState } from '@shared/types'
 import { CoffreCloseUp } from './Art'
+import { DropIllustration, FileSheet } from './FileArt'
 import { mapli } from '../lib/bridge'
 import { cn } from '../lib/cn'
 import { baseName, formatBytes, formatRelative, plural } from '../lib/format'
@@ -8,7 +9,8 @@ import { baseName, formatBytes, formatRelative, plural } from '../lib/format'
 /*
  * Le lecteur (direction « Bandeau ») : bandeau d'encre (organisation, lecteur, état)
  * prolongé du gros plan violet, le bouton d'encre pour ouvrir le lecteur, la jauge
- * d'espace, puis ce qui se passe (envois en cours, fichiers récemment ajoutés).
+ * d'espace, puis ce qui se passe (envois en cours, fichiers récemment ajoutés), chaque
+ * fichier dessiné en feuille selon son type.
  */
 
 const kicker = 'font-mono text-[11px] uppercase tracking-[0.06em]'
@@ -133,13 +135,11 @@ export function DriveScreen({ state, info, onSettings }: { state: DriveState; in
           <section className="mt-5">
             <p className={`${kicker} mb-1.5 text-muted`}>En cours</p>
             {state.transfers.map((t) => (
-              <div key={t.name} className="flex items-center gap-2.5 border-t border-line py-2 text-[12px]">
-                <span className="grid h-[22px] w-[22px] shrink-0 place-items-center rounded-[3px] bg-coffre-tint text-coffre">
-                  <Upload className="h-3 w-3" />
-                </span>
+              <div key={t.name} className="flex items-center gap-3 border-t border-line py-2">
+                <FileSheet name={t.name} uploading className="shrink-0" />
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate" title={t.name}>{baseName(t.name)}</span>
-                  <span className="mt-1 block h-[3px] bg-line">
+                  <span className="block truncate text-[13px] text-ink" title={t.name}>{baseName(t.name)}</span>
+                  <span className="mt-1.5 block h-[3px] bg-line">
                     <span className="block h-full bg-coffre transition-[width] duration-500" style={{ width: `${t.percentage}%` }} />
                   </span>
                 </span>
@@ -157,24 +157,27 @@ export function DriveScreen({ state, info, onSettings }: { state: DriveState; in
           <section className="mt-5">
             <p className={`${kicker} mb-1.5 text-muted`}>Récemment ajoutés</p>
             {state.recent.length === 0 ? (
-              <p className="border-y border-line py-2.5 text-[12px] leading-relaxed text-muted">
-                Glissez des fichiers ou des dossiers dans le {isMac ? 'volume Mapli' : `lecteur ${state.mountPoint}`} : ils arrivent dans le coffre-fort, chiffrés.
-              </p>
+              <div className="flex items-center gap-3.5 border-y border-line py-3">
+                <DropIllustration className="h-14 w-auto shrink-0" />
+                <p className="text-[12px] leading-relaxed text-muted">
+                  Glissez des fichiers ou des dossiers dans le {isMac ? 'volume Mapli' : `lecteur ${state.mountPoint}`} : ils arrivent dans le coffre-fort, chiffrés.
+                </p>
+              </div>
             ) : (
               state.recent.map((f) => (
-                <div key={f.id} className="flex items-center gap-2.5 border-t border-line py-2 text-[12px] last:border-b">
-                  <span className="grid h-[22px] w-[22px] shrink-0 place-items-center rounded-[3px] bg-surface-dim text-ink">
-                    {f.name.toLowerCase().endsWith('.pdf') ? <FileText className="h-3 w-3" /> : <File className="h-3 w-3" />}
-                  </span>
+                <div key={f.id} className="flex items-center gap-3 border-t border-line py-2 last:border-b">
+                  <FileSheet name={f.name} className="shrink-0" />
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate" title={f.name}>{f.name}</span>
-                    <span className="flex items-center gap-1 truncate text-[11px] text-muted">
+                    <span className="block truncate text-[13px] text-ink" title={f.name}>{f.name}</span>
+                    <span className="mt-0.5 flex min-w-0 items-center gap-1 text-[11px] text-muted">
                       {f.folder && (
                         <>
-                          <Folder className="h-2.5 w-2.5 shrink-0" /> {f.folder} ·
+                          <Folder className="h-2.5 w-2.5 shrink-0" />
+                          <span className="truncate">{f.folder}</span>
+                          <span aria-hidden="true">·</span>
                         </>
-                      )}{' '}
-                      {formatBytes(f.size_bytes)}
+                      )}
+                      <span className="shrink-0">{formatBytes(f.size_bytes)}</span>
                     </span>
                   </span>
                   <span className="shrink-0 font-mono text-[11px] text-muted">{formatRelative(f.created_at)}</span>
