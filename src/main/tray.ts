@@ -1,200 +1,87 @@
-import { Tray, Menu, nativeImage, BrowserWindow, app, shell, Notification } from 'electron'
-import { join } from 'path'
-import { getDriveSpace } from './rclone-manager'
-import { isMountReady, mountPathForOpen } from './platform'
-import type { ServerConfig } from './store'
+import { Menu, Tray, app, nativeImage } from 'electron'
+import type { DriveState } from '../shared/types'
+import { PRODUCT_NAME } from './config'
+import { getTrayIconPath, IS_MAC } from './platform'
+import type { DriveController } from './controller'
 
-const ICON_SIZE = { width: 16, height: 16 }
-const DOT_RADIUS = 3
-const DOT_INSET = 4
-const DOT_COLORS = {
-  green: [76, 175, 80] as const,
-  orange: [255, 152, 0] as const,
-  red: [244, 67, 54] as const
-}
-const LOW_SPACE_THRESHOLD_BYTES = 5 * 1024 ** 3
-const MENU_UPDATE_INTERVAL_MS = 10_000
-const SPACE_CHECK_CYCLE_COUNT = 30
+/*
+ * Icône de la zone de notification : le M de Mapli, avec une pastille d'état (vert
+ * monté, orange en cours ou en pause, rouge hors ligne ou en erreur), et un menu court.
+ * Les variantes sont des images (1× et 2×, nettes sur les écrans haute densité) ; sous
+ * macOS, l'icône « Template » suit le thème de la barre des menus, sans pastille.
+ */
 
-function getTrayIconPath(): string {
-  if (app.isPackaged) {
-    return join(process.resourcesPath, 'resources', 'icon.png')
-  }
-  return join(__dirname, '../../resources/icon.png')
+const VARIANT: Record<string, 'ok' | 'busy' | 'error' | null> = {
+  connected: 'ok',
+  connecting: 'busy',
+  pairing: 'busy',
+  paused: 'busy',
+  offline: 'error',
+  error: 'error',
+  unpaired: null,
 }
 
-let tray: Tray | null = null
+export function createTray(controller: DriveController, showWindow: () => void): Tray {
+  const base = nativeImage.createFromPath(getTrayIconPath())
+  const icons = new Map<string, Electron.NativeImage>()
+  const iconFor = (phase: string): Electron.NativeImage => {
+    const variant = VARIANT[phase] ?? null
+    if (!variant || IS_MAC) return base
+    if (!icons.has(variant)) icons.set(variant, nativeImage.createFromPath(getTrayIconPath(variant)))
+    return icons.get(variant)!
+  }
 
-export interface TrayOptions {
-  onDriveDisconnected?: (serverId: string) => void
-}
+  const tray = new Tray(base)
+  tray.setToolTip(PRODUCT_NAME)
 
-// F4: Create a copy of the base icon with a colored status dot in the bottom-right corner
-function createIconWithDot(
-  baseIcon: Electron.NativeImage,
-  color: [number, number, number]
-): Electron.NativeImage {
-  const { width, height } = baseIcon.getSize()
-  const bitmap = Buffer.from(baseIcon.toBitmap()) // BGRA format
-
-  const cx = width - DOT_INSET
-  const cy = height - DOT_INSET
-
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      if ((x - cx) ** 2 + (y - cy) ** 2 <= DOT_RADIUS * DOT_RADIUS) {
-        const offset = (y * width + x) * 4
-        bitmap[offset] = color[2] // B
-        bitmap[offset + 1] = color[1] // G
-        bitmap[offset + 2] = color[0] // R
-        bitmap[offset + 3] = 255 // A
-      }
+  const label = (state: DriveState): string => {
+    switch (state.phase) {
+      case 'connected':
+        return state.transfers.length > 0 ? `Envoi en cours (${state.transfers.length})` : `Lecteur ${state.mountPoint} · à jour`
+      case 'connecting':
+        return 'Connexion du lecteur…'
+      case 'pairing':
+        return 'En attente de l’accord sur app.mapli.fr'
+      case 'paused':
+        return 'Lecteur en pause'
+      case 'offline':
+        return 'Hors ligne · reconnexion…'
+      case 'error':
+        return 'Action requise'
+      default:
+        return 'Poste non relié'
     }
   }
 
-  return nativeImage.createFromBitmap(bitmap, { width, height })
-}
+  const refresh = (state: DriveState): void => {
+    tray.setImage(iconFor(state.phase))
+    tray.setToolTip(`${PRODUCT_NAME} — ${label(state)}`)
 
-export function createTray(
-  getWindow: () => BrowserWindow,
-  getServers: () => ServerConfig[],
-  options?: TrayOptions
-): Tray {
-  const iconPath = getTrayIconPath()
-  let baseIcon: Electron.NativeImage
-  try {
-    baseIcon = nativeImage.createFromPath(iconPath).resize(ICON_SIZE)
-  } catch {
-    baseIcon = nativeImage.createEmpty()
+    tray.setContextMenu(
+      Menu.buildFromTemplate([
+        { label: state.device ? `${PRODUCT_NAME} · ${state.device.organization.name}` : PRODUCT_NAME, enabled: false },
+        { label: label(state), enabled: false },
+        { type: 'separator' },
+        ...(state.phase === 'connected'
+          ? [{ label: `Ouvrir le lecteur ${state.mountPoint}`, click: () => controller.openDrive() }]
+          : []),
+        { label: `Ouvrir ${PRODUCT_NAME}`, click: showWindow },
+        ...(state.device ? [{ label: 'Coffre-fort sur le web', click: () => controller.openWeb() }] : []),
+        ...(state.phase === 'connected'
+          ? [{ type: 'separator' as const }, { label: 'Mettre en pause', click: () => void controller.pause() }]
+          : state.phase === 'paused' || state.phase === 'offline'
+            ? [{ type: 'separator' as const }, { label: 'Reprendre', click: () => void controller.resume() }]
+            : []),
+        { type: 'separator' },
+        { label: 'Quitter', click: () => app.quit() },
+      ]),
+    )
   }
 
-  // F4: Pre-generate colored icons once
-  const greenIcon = createIconWithDot(baseIcon, [...DOT_COLORS.green])
-  const orangeIcon = createIconWithDot(baseIcon, [...DOT_COLORS.orange])
-  const redIcon = createIconWithDot(baseIcon, [...DOT_COLORS.red])
-
-  tray = new Tray(baseIcon)
-  tray.setToolTip('CMC Drive')
-
-  // F2: Track previous connection states for disconnect detection
-  const previousStates = new Map<string, boolean>()
-
-  // F5: Track low-space notifications and check cycle counter
-  const lowSpaceNotified = new Set<string>()
-  let updateCycle = 0
-
-  const updateMenu = async (): Promise<void> => {
-    const servers = getServers()
-    const results = servers.map((s) => ({
-      server: s,
-      connected: isMountReady(s.mountPoint)
-    }))
-
-    // F2 + F3: Detect unexpected disconnections
-    for (const { server, connected } of results) {
-      const wasConnected = previousStates.get(server.id)
-      if (wasConnected === true && !connected) {
-        // F3: Native notification
-        new Notification({
-          title: 'CMC Drive',
-          body: `${server.driveName} (${server.mountPoint}) déconnecté. Reconnexion...`
-        }).show()
-        // F2: Trigger reconnection callback
-        options?.onDriveDisconnected?.(server.id)
-      }
-      previousStates.set(server.id, connected)
-    }
-
-    // Cleanup stale entries from removed servers
-    const currentIds = new Set(servers.map((s) => s.id))
-    for (const id of previousStates.keys()) {
-      if (!currentIds.has(id)) previousStates.delete(id)
-    }
-    for (const id of lowSpaceNotified) {
-      if (!currentIds.has(id)) lowSpaceNotified.delete(id)
-    }
-
-    // F4: Update tray icon based on overall connection status
-    const total = servers.length
-    const connectedCount = results.filter((r) => r.connected).length
-    if (total === 0) {
-      tray!.setImage(baseIcon)
-    } else if (connectedCount === total) {
-      tray!.setImage(greenIcon)
-    } else if (connectedCount > 0) {
-      tray!.setImage(orangeIcon)
-    } else {
-      tray!.setImage(redIcon)
-    }
-
-    // F5: Check disk space every 5 minutes (SPACE_CHECK_CYCLE_COUNT × MENU_UPDATE_INTERVAL_MS)
-    updateCycle++
-    if (updateCycle % SPACE_CHECK_CYCLE_COUNT === 0) {
-      for (const { server, connected } of results) {
-        if (!connected) continue
-        try {
-          const space = await getDriveSpace(server.mountPoint)
-          if (space) {
-            const freeBytes = space.totalBytes - space.usedBytes
-            if (freeBytes < LOW_SPACE_THRESHOLD_BYTES && !lowSpaceNotified.has(server.id)) {
-              const freeGB = (freeBytes / 1024 ** 3).toFixed(1)
-              new Notification({
-                title: 'CMC Drive — Espace disque faible',
-                body: `${server.driveName} (${server.mountPoint}) : ${freeGB} Go restants`
-              }).show()
-              lowSpaceNotified.add(server.id)
-            } else if (freeBytes >= LOW_SPACE_THRESHOLD_BYTES && lowSpaceNotified.has(server.id)) {
-              lowSpaceNotified.delete(server.id)
-            }
-          }
-        } catch (err) {
-          console.warn('[tray] space check failed:', err)
-        }
-      }
-    }
-
-    const connectedEntries = results
-      .filter((r) => r.connected)
-      .map((r) => ({
-        label: `Ouvrir ${r.server.driveName} (${r.server.mountPoint})`,
-        click: (): void => {
-          shell.openPath(mountPathForOpen(r.server.mountPoint))
-        }
-      }))
-
-    const contextMenu = Menu.buildFromTemplate([
-      { label: 'CMC Drive', enabled: false },
-      { type: 'separator' },
-      ...connectedEntries,
-      ...(connectedEntries.length > 0 ? [{ type: 'separator' as const }] : []),
-      {
-        label: 'Ouvrir CMC Drive',
-        click: () => {
-          const win = getWindow()
-          win.show()
-          win.focus()
-        }
-      },
-      { type: 'separator' },
-      {
-        label: 'Quitter',
-        click: () => {
-          if (tray) tray.destroy()
-          app.exit(0)
-        }
-      }
-    ])
-    tray!.setContextMenu(contextMenu)
-  }
-
-  updateMenu()
-  setInterval(updateMenu, MENU_UPDATE_INTERVAL_MS)
-
-  tray.on('double-click', () => {
-    const win = getWindow()
-    win.show()
-    win.focus()
-  })
+  refresh(controller.state)
+  controller.on('state', refresh)
+  tray.on('click', showWindow)
+  tray.on('double-click', showWindow)
 
   return tray
 }

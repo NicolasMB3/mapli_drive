@@ -1,73 +1,47 @@
-import React from 'react'
-import logoImg from '../assets/logo.png'
-import './Titlebar.css'
+import { Minus, Settings, X } from 'lucide-react'
+import { MapliMark } from './Art'
+import { mapli } from '../lib/bridge'
+import { cn } from '../lib/cn'
 
-interface TitlebarProps {
-  onSettingsClick: () => void
-}
-
-export default function Titlebar({ onSettingsClick }: TitlebarProps): React.JSX.Element {
+/**
+ * Barre de titre (fenêtre sans cadre), charte « Papier » : à l'encre, dans le
+ * prolongement du bandeau, coiffée du filet violet du Coffre-fort — le M de Mapli, le
+ * nom, puis les réglages et les boutons de la fenêtre.
+ */
+export function Titlebar({ onSettings, settingsOpen }: { onSettings?: () => void; settingsOpen?: boolean }) {
+  const button =
+    'no-drag grid h-[34px] w-10 cursor-pointer place-items-center text-white/55 transition-colors hover:bg-white/10 hover:text-white'
   return (
-    <div className="titlebar">
-      <div className="titlebar-drag">
-        <div className="titlebar-logo">
-          <img src={logoImg} alt="CMC Drive" width="20" height="20" />
-          <span className="titlebar-title">CMC Drive</span>
-        </div>
-      </div>
-      <div className="titlebar-controls">
-        <button
-          className="titlebar-btn"
-          onClick={onSettingsClick}
-          title="Paramètres"
-          aria-label="Paramètres"
-        >
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
+    <div className="drag relative flex h-[34px] shrink-0 items-center justify-between border-b border-white/10 bg-ink pl-3.5 text-white">
+      <span aria-hidden="true" className="absolute inset-x-0 top-0 h-[2px] bg-coffre" />
+      <span className="flex items-center gap-2.5">
+        <MapliMark className="h-[11px] w-auto" />
+        <span className="text-[12px] font-medium tracking-[-0.01em]">Mapli Drive</span>
+        <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-white/40">Coffre-fort</span>
+      </span>
+      <div className="flex">
+        {onSettings && (
+          <button
+            type="button"
+            onClick={onSettings}
+            className={cn(button, settingsOpen && 'bg-white/10 text-white')}
+            title="Réglages"
+            aria-label="Réglages"
           >
-            <circle cx="12" cy="12" r="3" />
-            <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
-          </svg>
+            <Settings className="h-3.5 w-3.5" />
+          </button>
+        )}
+        <button type="button" onClick={() => mapli.window.minimize()} className={button} title="Réduire" aria-label="Réduire">
+          <Minus className="h-3.5 w-3.5" />
         </button>
         <button
-          className="titlebar-btn"
-          onClick={() => window.api.minimizeWindow()}
-          title="Réduire"
-          aria-label="Réduire"
-        >
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-          >
-            <line x1="5" y1="12" x2="19" y2="12" />
-          </svg>
-        </button>
-        <button
-          className="titlebar-btn titlebar-btn-close"
-          onClick={() => window.api.closeWindow()}
-          title="Fermer"
+          type="button"
+          onClick={() => mapli.window.close()}
+          className={cn(button, 'hover:bg-danger hover:text-white')}
+          title="Fermer (Mapli Drive reste actif)"
           aria-label="Fermer"
         >
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-          >
-            <line x1="18" y1="6" x2="6" y2="18" />
-            <line x1="6" y1="6" x2="18" y2="18" />
-          </svg>
+          <X className="h-3.5 w-3.5" />
         </button>
       </div>
     </div>

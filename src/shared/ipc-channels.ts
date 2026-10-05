@@ -1,33 +1,29 @@
-// Window
+// Fenêtre
 export const IPC_WINDOW_MINIMIZE = 'window:minimize'
 export const IPC_WINDOW_CLOSE = 'window:close'
 
-// WebDAV
-export const IPC_WEBDAV_CONNECT = 'webdav:connect'
-export const IPC_WEBDAV_DISCONNECT = 'webdav:disconnect'
-export const IPC_WEBDAV_SPACE = 'webdav:space'
-export const IPC_WEBDAV_IS_CONNECTED = 'webdav:isConnected'
-export const IPC_WEBDAV_OPEN_EXPLORER = 'webdav:openExplorer'
-export const IPC_WEBDAV_RENAME = 'webdav:rename'
-export const IPC_WEBDAV_STATUS_CHANGED = 'webdav:statusChanged'
+// Application
+export const IPC_APP_INFO = 'app:info'
 
-// Store
-export const IPC_STORE_LOAD_ALL = 'store:loadAll'
-export const IPC_STORE_SAVE = 'store:save'
-export const IPC_STORE_DELETE = 'store:delete'
-export const IPC_STORE_CLEAR_ALL = 'store:clearAll'
+// Lecteur
+export const IPC_DRIVE_STATE = 'drive:state'
+export const IPC_DRIVE_STATE_CHANGED = 'drive:stateChanged'
+export const IPC_DRIVE_START_PAIRING = 'drive:startPairing'
+export const IPC_DRIVE_CANCEL_PAIRING = 'drive:cancelPairing'
+export const IPC_DRIVE_OPEN_VERIFICATION = 'drive:openVerification'
+export const IPC_DRIVE_OPEN = 'drive:open'
+export const IPC_DRIVE_OPEN_WEB = 'drive:openWeb'
+export const IPC_DRIVE_PAUSE = 'drive:pause'
+export const IPC_DRIVE_RESUME = 'drive:resume'
+export const IPC_DRIVE_UNPAIR = 'drive:unpair'
+export const IPC_DRIVE_DISMISS_NOTICE = 'drive:dismissNotice'
 
-// App
-export const IPC_APP_GET_AUTO_START = 'app:getAutoStart'
-export const IPC_APP_SET_AUTO_START = 'app:setAutoStart'
+// Réglages
+export const IPC_SETTINGS_GET = 'settings:get'
+export const IPC_SETTINGS_SET = 'settings:set'
+export const IPC_SETTINGS_MOUNT_POINTS = 'settings:mountPoints'
 
-// Updater
+// Mises à jour
 export const IPC_UPDATER_CHECK = 'updater:check'
 export const IPC_UPDATER_INSTALL = 'updater:install'
-export const IPC_UPDATER_UPDATE_AVAILABLE = 'updater:updateAvailable'
-export const IPC_UPDATER_UPDATE_DOWNLOADED = 'updater:updateDownloaded'
-export const IPC_UPDATER_UP_TO_DATE = 'updater:upToDate'
-export const IPC_UPDATER_ERROR = 'updater:error'
-
-// Notifications
-export const IPC_NOTIFY = 'notify'
+export const IPC_UPDATER_STATUS = 'updater:status'

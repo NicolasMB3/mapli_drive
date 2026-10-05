@@ -1,101 +1,70 @@
-import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron'
-import type { ConnectOptions, ServerConfig } from '../shared/types'
+import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
+import type { AppInfo, DriveSettings, DriveState, UpdateStatus } from '../shared/types'
+import type { MapliApi } from '../shared/bridge'
 import {
-  IPC_WINDOW_MINIMIZE,
-  IPC_WINDOW_CLOSE,
-  IPC_WEBDAV_CONNECT,
-  IPC_WEBDAV_DISCONNECT,
-  IPC_WEBDAV_SPACE,
-  IPC_WEBDAV_IS_CONNECTED,
-  IPC_WEBDAV_OPEN_EXPLORER,
-  IPC_WEBDAV_RENAME,
-  IPC_WEBDAV_STATUS_CHANGED,
-  IPC_STORE_LOAD_ALL,
-  IPC_STORE_SAVE,
-  IPC_STORE_DELETE,
-  IPC_STORE_CLEAR_ALL,
-  IPC_APP_GET_AUTO_START,
-  IPC_APP_SET_AUTO_START,
+  IPC_APP_INFO,
+  IPC_DRIVE_CANCEL_PAIRING,
+  IPC_DRIVE_DISMISS_NOTICE,
+  IPC_DRIVE_OPEN,
+  IPC_DRIVE_OPEN_VERIFICATION,
+  IPC_DRIVE_OPEN_WEB,
+  IPC_DRIVE_PAUSE,
+  IPC_DRIVE_RESUME,
+  IPC_DRIVE_START_PAIRING,
+  IPC_DRIVE_STATE,
+  IPC_DRIVE_STATE_CHANGED,
+  IPC_DRIVE_UNPAIR,
+  IPC_SETTINGS_GET,
+  IPC_SETTINGS_MOUNT_POINTS,
+  IPC_SETTINGS_SET,
   IPC_UPDATER_CHECK,
   IPC_UPDATER_INSTALL,
-  IPC_UPDATER_UPDATE_AVAILABLE,
-  IPC_UPDATER_UPDATE_DOWNLOADED,
-  IPC_UPDATER_UP_TO_DATE,
-  IPC_UPDATER_ERROR,
-  IPC_NOTIFY
+  IPC_UPDATER_STATUS,
+  IPC_WINDOW_CLOSE,
+  IPC_WINDOW_MINIMIZE,
 } from '../shared/ipc-channels'
 
-contextBridge.exposeInMainWorld('api', {
-  platform: process.platform,
-  minimizeWindow: () => ipcRenderer.send(IPC_WINDOW_MINIMIZE),
-  closeWindow: () => ipcRenderer.send(IPC_WINDOW_CLOSE),
-  webdav: {
-    connect: (opts: ConnectOptions) => ipcRenderer.invoke(IPC_WEBDAV_CONNECT, opts),
-    disconnect: (mountPoint: string) => ipcRenderer.invoke(IPC_WEBDAV_DISCONNECT, mountPoint),
-    getSpace: (mountPoint: string) => ipcRenderer.invoke(IPC_WEBDAV_SPACE, mountPoint),
-    isConnected: (mountPoint: string) => ipcRenderer.invoke(IPC_WEBDAV_IS_CONNECTED, mountPoint),
-    openExplorer: (mountPoint: string) => ipcRenderer.send(IPC_WEBDAV_OPEN_EXPLORER, mountPoint),
-    rename: (mountPoint: string, name: string) =>
-      ipcRenderer.invoke(IPC_WEBDAV_RENAME, mountPoint, name)
+/*
+ * Pont entre la fenêtre (sans accès à Node) et le processus principal : une liste
+ * fermée d'actions, aucun canal générique.
+ */
+
+function subscribe<T>(channel: string, callback: (value: T) => void): () => void {
+  const handler = (_event: IpcRendererEvent, value: T): void => callback(value)
+  ipcRenderer.on(channel, handler)
+  return () => ipcRenderer.removeListener(channel, handler)
+}
+
+const api: MapliApi = {
+  window: {
+    minimize: () => ipcRenderer.send(IPC_WINDOW_MINIMIZE),
+    close: () => ipcRenderer.send(IPC_WINDOW_CLOSE),
   },
-  store: {
-    loadAll: () => ipcRenderer.invoke(IPC_STORE_LOAD_ALL),
-    save: (config: ServerConfig) => ipcRenderer.invoke(IPC_STORE_SAVE, config),
-    delete: (id: string) => ipcRenderer.invoke(IPC_STORE_DELETE, id),
-    clearAll: () => ipcRenderer.invoke(IPC_STORE_CLEAR_ALL)
+  info: (): Promise<AppInfo> => ipcRenderer.invoke(IPC_APP_INFO),
+  drive: {
+    state: (): Promise<DriveState> => ipcRenderer.invoke(IPC_DRIVE_STATE),
+    onState: (callback: (state: DriveState) => void) => subscribe(IPC_DRIVE_STATE_CHANGED, callback),
+    startPairing: (): Promise<void> => ipcRenderer.invoke(IPC_DRIVE_START_PAIRING),
+    cancelPairing: (): Promise<void> => ipcRenderer.invoke(IPC_DRIVE_CANCEL_PAIRING),
+    openVerification: (): Promise<void> => ipcRenderer.invoke(IPC_DRIVE_OPEN_VERIFICATION),
+    open: (): Promise<void> => ipcRenderer.invoke(IPC_DRIVE_OPEN),
+    openWeb: (): Promise<void> => ipcRenderer.invoke(IPC_DRIVE_OPEN_WEB),
+    pause: (): Promise<void> => ipcRenderer.invoke(IPC_DRIVE_PAUSE),
+    resume: (): Promise<void> => ipcRenderer.invoke(IPC_DRIVE_RESUME),
+    unpair: (): Promise<void> => ipcRenderer.invoke(IPC_DRIVE_UNPAIR),
+    dismissNotice: (): Promise<void> => ipcRenderer.invoke(IPC_DRIVE_DISMISS_NOTICE),
   },
-  app: {
-    getAutoStart: () => ipcRenderer.invoke(IPC_APP_GET_AUTO_START),
-    setAutoStart: (enabled: boolean) => ipcRenderer.invoke(IPC_APP_SET_AUTO_START, enabled)
+  settings: {
+    get: (): Promise<DriveSettings> => ipcRenderer.invoke(IPC_SETTINGS_GET),
+    set: (next: Partial<DriveSettings>): Promise<DriveSettings> => ipcRenderer.invoke(IPC_SETTINGS_SET, next),
+    mountPoints: (): Promise<string[]> => ipcRenderer.invoke(IPC_SETTINGS_MOUNT_POINTS),
   },
   updater: {
-    check: () => ipcRenderer.invoke(IPC_UPDATER_CHECK),
-    install: () => ipcRenderer.invoke(IPC_UPDATER_INSTALL),
-    onUpdateAvailable: (cb: (version: string) => void): (() => void) => {
-      const handler = (_e: IpcRendererEvent, version: string): void => {
-        cb(version)
-      }
-      ipcRenderer.on(IPC_UPDATER_UPDATE_AVAILABLE, handler)
-      return () => {
-        ipcRenderer.removeListener(IPC_UPDATER_UPDATE_AVAILABLE, handler)
-      }
-    },
-    onUpdateDownloaded: (cb: (version: string) => void): (() => void) => {
-      const handler = (_e: IpcRendererEvent, version: string): void => {
-        cb(version)
-      }
-      ipcRenderer.on(IPC_UPDATER_UPDATE_DOWNLOADED, handler)
-      return () => {
-        ipcRenderer.removeListener(IPC_UPDATER_UPDATE_DOWNLOADED, handler)
-      }
-    },
-    onUpToDate: (cb: () => void): (() => void) => {
-      const handler = (): void => {
-        cb()
-      }
-      ipcRenderer.on(IPC_UPDATER_UP_TO_DATE, handler)
-      return () => {
-        ipcRenderer.removeListener(IPC_UPDATER_UP_TO_DATE, handler)
-      }
-    },
-    onError: (cb: (message: string) => void): (() => void) => {
-      const handler = (_e: IpcRendererEvent, message: string): void => {
-        cb(message)
-      }
-      ipcRenderer.on(IPC_UPDATER_ERROR, handler)
-      return () => {
-        ipcRenderer.removeListener(IPC_UPDATER_ERROR, handler)
-      }
-    }
+    status: (): Promise<{ status: UpdateStatus; version?: string }> => ipcRenderer.invoke(IPC_UPDATER_STATUS),
+    onStatus: (callback: (status: { status: UpdateStatus; version?: string }) => void) => subscribe(IPC_UPDATER_STATUS, callback),
+    check: (): Promise<void> => ipcRenderer.invoke(IPC_UPDATER_CHECK),
+    install: (): Promise<void> => ipcRenderer.invoke(IPC_UPDATER_INSTALL),
   },
-  notify: (title: string, body: string) => ipcRenderer.send(IPC_NOTIFY, { title, body }),
-  onStatusChanged: (callback: (serverId: string, status: string) => void): (() => void) => {
-    const handler = (_e: IpcRendererEvent, id: string, status: string): void => {
-      callback(id, status)
-    }
-    ipcRenderer.on(IPC_WEBDAV_STATUS_CHANGED, handler)
-    return () => {
-      ipcRenderer.removeListener(IPC_WEBDAV_STATUS_CHANGED, handler)
-    }
-  }
-})
+}
+
+contextBridge.exposeInMainWorld('mapli', api)

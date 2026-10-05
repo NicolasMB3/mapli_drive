@@ -9,14 +9,19 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
-    "outDir": "./out",
-    "declaration": true,
-    "types": ["node"]
+    "outDir": "./node_modules/.tmp/tsc-node",
+    "types": [
+      "node"
+    ],
+    "emitDeclarationOnly": true,
+    "declaration": true
   },
   "include": [
     "src/main/**/*.ts",
     "src/preload/**/*.ts",
     "src/shared/**/*.ts",
-    "electron.vite.config.ts"
+    "electron.vite.config.ts",
+    "vite.preview.config.ts",
+    "vitest.config.ts"
   ]
 }

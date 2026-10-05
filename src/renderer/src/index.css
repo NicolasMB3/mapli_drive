@@ -1,0 +1,75 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/geist';
+@import '@fontsource-variable/geist-mono';
+
+/*
+ * Charte « Papier » de Mapli : encre #121212, papier blanc, filets, angles vifs,
+ * surtitres en capitales mono ; le violet est celui du Coffre-fort.
+ */
+@theme {
+  --font-sans: 'Geist Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'Geist Mono Variable', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+
+  --color-ink: #121212;
+  --color-paper: #f4f3ef;
+  --color-surface: #ffffff;
+  --color-surface-dim: #fafaf8;
+  --color-line: #e2e1dc;
+  --color-input: #d6d5cf;
+  --color-muted: #6b6a64;
+  --color-body: #3a3a35;
+
+  --color-coffre: #6b57f5;
+  --color-coffre-tint: #eeebff;
+  --color-coffre-ink: #4b3bc4;
+  --color-brand: #df7a45;
+  --color-courrier: #df6a2e;
+  --color-success: #12a15f;
+  --color-success-ink: #0b7a4b;
+  --color-success-tint: #e2f5ec;
+  --color-danger: #c2382b;
+  --color-danger-tint: #fdf3f1;
+  --color-warning: #f2b705;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  overflow: hidden;
+}
+
+/* Barre de titre : la fenêtre se déplace en la saisissant, pas ses boutons. */
+.drag {
+  -webkit-app-region: drag;
+}
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* Attente : trois cases qui s'allument tour à tour. */
+@keyframes cell {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  40% {
+    opacity: 1;
+  }
+}
+.cell {
+  animation: cell 1.2s ease-in-out infinite;
+}
+
+::selection {
+  background: var(--color-coffre-tint);
+}

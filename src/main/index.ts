@@ -1,326 +1,178 @@
-import { app, BrowserWindow, ipcMain, Notification, shell, powerMonitor } from 'electron'
+import { app, BrowserWindow, ipcMain, shell } from 'electron'
 import { join } from 'path'
+import type { DriveSettings } from '../shared/types'
 import {
-  connectDrive,
-  disconnectByMountPoint,
-  getDriveSpace,
-  killAll,
-  killOrphanedRclone,
-  resolveMount
-} from './rclone-manager'
-import {
-  loadServers,
-  saveServer,
-  deleteServer,
-  clearAllServers,
-  isFirstLaunch,
-  markLaunched,
-  ServerConfig
-} from './store'
-import { createTray } from './tray'
-import { setupAutoUpdater, checkForUpdates, installUpdate, replayUpdateState } from './updater'
-import { getIconPath, isMountReady, mountPathForOpen, IS_WIN } from './platform'
-import {
-  IPC_WINDOW_MINIMIZE,
-  IPC_WINDOW_CLOSE,
-  IPC_WEBDAV_CONNECT,
-  IPC_WEBDAV_DISCONNECT,
-  IPC_WEBDAV_SPACE,
-  IPC_WEBDAV_IS_CONNECTED,
-  IPC_WEBDAV_OPEN_EXPLORER,
-  IPC_WEBDAV_RENAME,
-  IPC_WEBDAV_STATUS_CHANGED,
-  IPC_STORE_LOAD_ALL,
-  IPC_STORE_SAVE,
-  IPC_STORE_DELETE,
-  IPC_STORE_CLEAR_ALL,
-  IPC_APP_GET_AUTO_START,
-  IPC_APP_SET_AUTO_START,
+  IPC_APP_INFO,
+  IPC_DRIVE_CANCEL_PAIRING,
+  IPC_DRIVE_DISMISS_NOTICE,
+  IPC_DRIVE_OPEN,
+  IPC_DRIVE_OPEN_VERIFICATION,
+  IPC_DRIVE_OPEN_WEB,
+  IPC_DRIVE_PAUSE,
+  IPC_DRIVE_RESUME,
+  IPC_DRIVE_START_PAIRING,
+  IPC_DRIVE_STATE,
+  IPC_DRIVE_STATE_CHANGED,
+  IPC_DRIVE_UNPAIR,
+  IPC_SETTINGS_GET,
+  IPC_SETTINGS_MOUNT_POINTS,
+  IPC_SETTINGS_SET,
   IPC_UPDATER_CHECK,
   IPC_UPDATER_INSTALL,
-  IPC_NOTIFY
+  IPC_UPDATER_STATUS,
+  IPC_WINDOW_CLOSE,
+  IPC_WINDOW_MINIMIZE,
 } from '../shared/ipc-channels'
+import { APP_ID, WEB_URL } from './config'
+import { DriveController } from './controller'
+import { availableDriveLetters, getIconPath, IS_WIN } from './platform'
+import { isFirstLaunch, markLaunched } from './session'
+import { createTray } from './tray'
+import { checkForUpdates, currentUpdateStatus, installUpdate, setupAutoUpdater } from './updater'
 
-const RECONNECT_COOLDOWN_MS = 30_000
+/*
+ * Mapli Drive : l'application vit dans la zone de notification ; la fenêtre (créée à
+ * la demande) affiche le lecteur, l'appairage et les réglages.
+ */
 
-// F2: Track intentionally disconnected servers (via UI) to avoid auto-reconnect
-const intentionalDisconnects = new Set<string>()
-const lastReconnectAttempts = new Map<string, number>()
-
-// Lazy window creation — window is not created until user interacts
+const controller = new DriveController()
 let mainWindow: BrowserWindow | null = null
-const pendingStatusChanges: Array<[string, string]> = []
+// Fermer la fenêtre la cache ; seul « Quitter » (ou une mise à jour) quitte vraiment.
+let quitting = false
 
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
-    width: 480,
-    height: 600,
+    width: 420,
+    height: 660,
+    show: false,
     frame: false,
     resizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    backgroundColor: '#FFFFFF',
+    title: 'Mapli Drive',
     icon: getIconPath(),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
-    }
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
   })
 
   if (process.env.ELECTRON_RENDERER_URL) {
-    win.loadURL(process.env.ELECTRON_RENDERER_URL)
+    void win.loadURL(process.env.ELECTRON_RENDERER_URL)
   } else {
-    win.loadFile(join(__dirname, '../renderer/index.html'))
+    void win.loadFile(join(__dirname, '../renderer/index.html'))
   }
 
-  // Hide on close instead of quitting (tray keeps running)
-  win.on('close', (e) => {
-    e.preventDefault()
+  win.once('ready-to-show', () => win.show())
+  win.on('show', () => controller.setWindowVisible(true))
+  win.on('hide', () => controller.setWindowVisible(false))
+  win.on('close', (event) => {
+    if (quitting) return
+    event.preventDefault()
     win.hide()
   })
 
-  // Flush queued status changes + replay update state once the renderer is ready
-  win.webContents.on('did-finish-load', () => {
-    for (const [id, status] of pendingStatusChanges) {
-      win.webContents.send(IPC_WEBDAV_STATUS_CHANGED, id, status)
-    }
-    pendingStatusChanges.length = 0
-    replayUpdateState(win)
+  // Liens externes : navigateur du système, jamais dans la fenêtre de l'application.
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith('https://')) void shell.openExternal(url)
+    return { action: 'deny' }
+  })
+  win.webContents.on('will-navigate', (event, url) => {
+    if (url !== win.webContents.getURL()) event.preventDefault()
   })
 
   return win
 }
 
-function getOrCreateWindow(): BrowserWindow {
-  if (!mainWindow || mainWindow.isDestroyed()) {
-    mainWindow = createWindow()
-  }
-  return mainWindow
-}
-
-function sendStatus(serverId: string, status: string): void {
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send(IPC_WEBDAV_STATUS_CHANGED, serverId, status)
-  } else {
-    pendingStatusChanges.push([serverId, status])
+function showWindow(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) mainWindow = createWindow()
+  else {
+    mainWindow.show()
+    mainWindow.focus()
   }
 }
 
-async function connectServer(server: ServerConfig): Promise<void> {
-  await connectDrive(
-    server.id,
-    {
-      url: server.url,
-      mountPoint: server.mountPoint,
-      username: server.username,
-      password: server.password,
-      driveName: server.driveName
-    },
-    (code) => {
-      if (code !== null && code !== 0) {
-        sendStatus(server.id, 'disconnected')
-      }
-    }
-  )
-  sendStatus(server.id, 'connected')
-}
+// ── IPC ───────────────────────────────────────────────────
 
-// Window IPC handlers
-ipcMain.on(IPC_WINDOW_MINIMIZE, () => {
-  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.minimize()
-})
-ipcMain.on(IPC_WINDOW_CLOSE, () => {
-  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.hide()
-})
+ipcMain.on(IPC_WINDOW_MINIMIZE, () => mainWindow?.minimize())
+ipcMain.on(IPC_WINDOW_CLOSE, () => mainWindow?.hide())
 
-// Notification IPC handler
-ipcMain.on(IPC_NOTIFY, (_e, { title, body }: { title: string; body: string }) => {
-  new Notification({ title, body }).show()
-})
+ipcMain.handle(IPC_APP_INFO, () => ({ version: app.getVersion(), platform: process.platform, webUrl: WEB_URL }))
 
-// WebDAV IPC handlers
-ipcMain.handle(
-  IPC_WEBDAV_CONNECT,
-  async (
-    _e,
-    opts: {
-      url: string
-      mountPoint: string
-      username: string
-      password: string
-      driveName?: string
-    }
-  ) => {
-    const servers = loadServers()
-    const server = servers.find((s) => s.mountPoint === opts.mountPoint)
-    const serverId = server?.id || Date.now().toString()
-    if (server) intentionalDisconnects.delete(serverId)
+ipcMain.handle(IPC_DRIVE_STATE, () => controller.state)
+ipcMain.handle(IPC_DRIVE_START_PAIRING, () => controller.startPairing())
+ipcMain.handle(IPC_DRIVE_CANCEL_PAIRING, () => controller.cancelPairing())
+ipcMain.handle(IPC_DRIVE_OPEN_VERIFICATION, () => controller.openVerification())
+ipcMain.handle(IPC_DRIVE_OPEN, () => controller.openDrive())
+ipcMain.handle(IPC_DRIVE_OPEN_WEB, () => controller.openWeb())
+ipcMain.handle(IPC_DRIVE_PAUSE, () => controller.pause())
+ipcMain.handle(IPC_DRIVE_RESUME, () => controller.resume())
+ipcMain.handle(IPC_DRIVE_UNPAIR, () => controller.unpair())
+ipcMain.handle(IPC_DRIVE_DISMISS_NOTICE, () => controller.dismissNotice())
 
-    await connectDrive(serverId, opts, (code) => {
-      if (code !== null && code !== 0) {
-        sendStatus(serverId, 'disconnected')
-      }
-    })
+ipcMain.handle(IPC_SETTINGS_GET, () => ({
+  ...controller.getSettings(),
+  autoStart: app.getLoginItemSettings().openAtLogin,
+}))
+ipcMain.handle(IPC_SETTINGS_SET, async (_event, next: Partial<DriveSettings>) => {
+  if (typeof next.autoStart === 'boolean' && app.isPackaged) {
+    app.setLoginItemSettings({ openAtLogin: next.autoStart })
   }
-)
-
-ipcMain.handle(IPC_WEBDAV_DISCONNECT, async (_e, mountPoint: string) => {
-  const servers = loadServers()
-  const server = servers.find((s) => s.mountPoint === mountPoint)
-  if (server) intentionalDisconnects.add(server.id)
-  await disconnectByMountPoint(mountPoint)
+  const settings = await controller.setSettings(next)
+  return { ...settings, autoStart: app.getLoginItemSettings().openAtLogin }
 })
+ipcMain.handle(IPC_SETTINGS_MOUNT_POINTS, () => availableDriveLetters(controller.getSettings().mountPoint))
 
-ipcMain.handle(IPC_WEBDAV_SPACE, async (_e, mountPoint: string) => {
-  return getDriveSpace(mountPoint)
-})
-
-ipcMain.handle(IPC_WEBDAV_IS_CONNECTED, async (_e, mountPoint: string) => {
-  return isMountReady(resolveMount(mountPoint))
-})
-
-ipcMain.on(IPC_WEBDAV_OPEN_EXPLORER, (_e, mountPoint: string) => {
-  shell.openPath(mountPathForOpen(resolveMount(mountPoint)))
-})
-
-ipcMain.handle(IPC_WEBDAV_RENAME, async (_e, mountPoint: string, name: string) => {
-  // Registry rename hack is Windows-only
-  if (!IS_WIN) return
-  const { execFile: execFileCb } = await import('child_process')
-  const safeName = name.replace(/'/g, "''").replace(/[`$]/g, '')
-  execFileCb(
-    'powershell.exe',
-    [
-      '-WindowStyle',
-      'Hidden',
-      '-NoProfile',
-      '-Command',
-      `Get-ChildItem "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\MountPoints2" | ForEach-Object { New-ItemProperty -Path $_.PSPath -Name '_LabelFromReg' -Value '${safeName}' -Force -ErrorAction SilentlyContinue } | Out-Null`
-    ],
-    { windowsHide: true },
-    () => {}
-  )
-})
-
-// Store IPC handlers
-ipcMain.handle(IPC_STORE_LOAD_ALL, async () => {
-  return loadServers()
-})
-
-ipcMain.handle(IPC_STORE_SAVE, async (_e, config: ServerConfig) => {
-  saveServer(config)
-})
-
-ipcMain.handle(IPC_STORE_DELETE, async (_e, id: string) => {
-  deleteServer(id)
-  intentionalDisconnects.delete(id)
-  lastReconnectAttempts.delete(id)
-})
-
-ipcMain.handle(IPC_STORE_CLEAR_ALL, async () => {
-  clearAllServers()
-})
-
-// Updater IPC handlers
-ipcMain.handle(IPC_UPDATER_CHECK, () => {
-  checkForUpdates()
-})
-
+ipcMain.handle(IPC_UPDATER_CHECK, () => checkForUpdates())
+ipcMain.handle(IPC_UPDATER_STATUS, () => currentUpdateStatus())
 ipcMain.handle(IPC_UPDATER_INSTALL, () => {
+  quitting = true
   installUpdate()
 })
 
-// App IPC handlers
-ipcMain.handle(IPC_APP_GET_AUTO_START, () => {
-  return app.getLoginItemSettings().openAtLogin
+controller.on('state', (state) => {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(IPC_DRIVE_STATE_CHANGED, state)
 })
 
-ipcMain.handle(IPC_APP_SET_AUTO_START, (_e, enabled: boolean) => {
-  app.setLoginItemSettings({ openAtLogin: enabled })
-})
+// ── Cycle de vie ──────────────────────────────────────────
 
-// F2: Auto-reconnect servers that dropped unexpectedly (with cooldown)
-async function reconnectServers(): Promise<void> {
-  const now = Date.now()
-  const servers = loadServers()
-  const toReconnect = servers.filter((s) => {
-    if (!s.autoConnect || intentionalDisconnects.has(s.id) || isMountReady(resolveMount(s.mountPoint))) {
-      return false
-    }
-    const lastAttempt = lastReconnectAttempts.get(s.id) ?? 0
-    return now - lastAttempt >= RECONNECT_COOLDOWN_MS
-  })
-
-  if (toReconnect.length === 0) return
-
-  await Promise.all(
-    toReconnect.map((server) => {
-      lastReconnectAttempts.set(server.id, now)
-      return connectServer(server).catch((err) => {
-        console.warn(`[main] reconnect failed for ${server.driveName}:`, err)
-      })
-    })
-  )
-}
-
-// Single instance lock
-const gotLock = app.requestSingleInstanceLock()
-if (!gotLock) {
+if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
-  app.on('second-instance', () => {
-    const win = getOrCreateWindow()
-    win.show()
-    win.focus()
-  })
+  app.on('second-instance', showWindow)
 
   app.whenReady().then(async () => {
-    // Fix Windows taskbar icon: associate our custom icon with this AppUserModelId
-    if (IS_WIN) {
-      app.setAppUserModelId('fr.cmc-06.cmc-drive')
-    }
+    if (IS_WIN) app.setAppUserModelId(APP_ID)
 
-    // Kill rclone processes left over from a previous session before reconnecting
-    killOrphanedRclone()
-
-    // Enable auto-start on first launch
+    // Lancement au démarrage du poste, une fois, pour l'application installée.
     if (isFirstLaunch()) {
-      app.setLoginItemSettings({ openAtLogin: true })
+      if (app.isPackaged) app.setLoginItemSettings({ openAtLogin: true })
       markLaunched()
     }
 
-    // Create tray with lazy window getter and disconnect callback (F2)
-    createTray(getOrCreateWindow, () => loadServers(), {
-      onDriveDisconnected: () => reconnectServers()
-    })
-
-    // F1: Setup auto-updater (checks after 5s, then every 4h)
+    createTray(controller, showWindow)
     setupAutoUpdater(() => mainWindow)
+    await controller.init()
 
-    // F2: Reconnect drives after PC wakes from sleep/hibernate
-    powerMonitor.on('resume', () => {
-      setTimeout(reconnectServers, 3_000)
-    })
-
-    // Auto-connect on startup for all servers with autoConnect enabled
-    const servers = loadServers()
-    const autoConnectServers = servers.filter(
-      (s) => s.autoConnect && !isMountReady(resolveMount(s.mountPoint))
-    )
-
-    if (autoConnectServers.length > 0) {
-      await Promise.all(
-        autoConnectServers.map((server) =>
-          connectServer(server).catch((err) => {
-            console.warn(`[main] auto-connect failed for ${server.driveName}:`, err)
-          })
-        )
-      )
-    }
+    // Premier lancement ou poste non relié : on montre la fenêtre (appairage).
+    if (controller.state.phase === 'unpaired' || !app.getLoginItemSettings().wasOpenedAtLogin) showWindow()
   })
 }
 
-app.on('before-quit', () => {
-  killAll()
+// Quitter : on démonte proprement (envois en attente terminés), puis on sort.
+app.on('before-quit', (event) => {
+  if (quitting) {
+    controller.killSync()
+    return
+  }
+  event.preventDefault()
+  quitting = true
+  void controller.shutdown().finally(() => app.quit())
 })
 
 app.on('window-all-closed', () => {
-  // No-op: app stays alive in tray
+  // L'application reste active dans la zone de notification.
 })

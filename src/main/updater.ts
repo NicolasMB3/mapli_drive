@@ -1,90 +1,68 @@
 import { autoUpdater } from 'electron-updater'
-import { shell } from 'electron'
-import type { BrowserWindow } from 'electron'
-import {
-  IPC_UPDATER_UPDATE_AVAILABLE,
-  IPC_UPDATER_UPDATE_DOWNLOADED,
-  IPC_UPDATER_UP_TO_DATE,
-  IPC_UPDATER_ERROR
-} from '../shared/ipc-channels'
+import { app, shell, type BrowserWindow } from 'electron'
+import type { UpdateStatus } from '../shared/types'
+import { IPC_UPDATER_STATUS } from '../shared/ipc-channels'
 import { IS_MAC } from './platform'
 
-const GITHUB_RELEASES_URL = 'https://github.com/NicolasMB3/webdav_connect/releases/latest'
-
-const INITIAL_CHECK_DELAY_MS = 5_000
-const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1_000
-
-let getWindowFn: (() => BrowserWindow | null) | null = null
-
-// Queued update state — persists until a window is ready to receive it
-let pendingState: { channel: string; args: unknown[] } | null = null
-
-function sendToRenderer(channel: string, ...args: unknown[]): void {
-  const win = getWindowFn?.()
-  if (win && !win.isDestroyed()) {
-    win.webContents.send(channel, ...args)
-  } else {
-    // Window doesn't exist yet — queue the latest state
-    pendingState = { channel, args }
-  }
-}
-
-/**
- * Replay the last queued update state to a newly opened window.
- * Called from createWindow()'s did-finish-load event.
+/*
+ * Mises à jour automatiques (GitHub Releases de mapli_drive). Sous Windows, la mise à
+ * jour se télécharge seule puis s'installe au redémarrage choisi par l'utilisateur ;
+ * sous macOS (application non signée), on ouvre la page de téléchargement.
  */
-export function replayUpdateState(win: BrowserWindow): void {
-  if (pendingState && !win.isDestroyed()) {
-    win.webContents.send(pendingState.channel, ...pendingState.args)
-    pendingState = null
-  }
+
+const RELEASES_URL = 'https://github.com/NicolasMB3/mapli_drive/releases/latest'
+const INITIAL_CHECK_DELAY_MS = 10_000
+const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1_000
+
+let status: { status: UpdateStatus; version?: string } = { status: 'idle' }
+let getWindow: () => BrowserWindow | null = () => null
+
+function publish(next: { status: UpdateStatus; version?: string }): void {
+  status = next
+  const win = getWindow()
+  if (win && !win.isDestroyed()) win.webContents.send(IPC_UPDATER_STATUS, status)
 }
 
-export function setupAutoUpdater(getWindow: () => BrowserWindow | null): void {
-  getWindowFn = getWindow
-  // On macOS the app is unsigned, so auto-download would fail signature verification
+export function currentUpdateStatus(): { status: UpdateStatus; version?: string } {
+  return status
+}
+
+export function setupAutoUpdater(windowGetter: () => BrowserWindow | null): void {
+  getWindow = windowGetter
+  if (!app.isPackaged) return
+
   autoUpdater.autoDownload = !IS_MAC
-  autoUpdater.autoInstallOnAppQuit = false
+  autoUpdater.autoInstallOnAppQuit = true
 
-  autoUpdater.on('checking-for-update', () => {})
+  autoUpdater.on('checking-for-update', () => publish({ status: 'checking' }))
+  autoUpdater.on('update-available', (info) => publish({ status: IS_MAC ? 'available' : 'downloading', version: info.version }))
+  autoUpdater.on('update-not-available', () => publish({ status: 'up-to-date' }))
+  autoUpdater.on('update-downloaded', (info) => publish({ status: 'ready', version: info.version }))
+  autoUpdater.on('error', () => publish({ status: 'error' }))
 
-  autoUpdater.on('update-available', (info) => {
-    sendToRenderer(IPC_UPDATER_UPDATE_AVAILABLE, info.version)
-  })
-
-  autoUpdater.on('update-not-available', () => {
-    sendToRenderer(IPC_UPDATER_UP_TO_DATE)
-  })
-
-  autoUpdater.on('download-progress', () => {})
-
-  autoUpdater.on('update-downloaded', (info) => {
-    sendToRenderer(IPC_UPDATER_UPDATE_DOWNLOADED, info.version)
-  })
-
-  autoUpdater.on('error', (err) => {
-    sendToRenderer(IPC_UPDATER_ERROR, err.message)
-  })
-
-  const safeCheck = (): void => {
-    autoUpdater.checkForUpdatesAndNotify().catch((err) => {
-      console.warn('[updater] check failed:', err)
-    })
+  const check = (): void => {
+    autoUpdater.checkForUpdates().catch(() => publish({ status: 'error' }))
   }
-
-  // Initial check after delay, then periodically
-  setTimeout(safeCheck, INITIAL_CHECK_DELAY_MS)
-  setInterval(safeCheck, UPDATE_CHECK_INTERVAL_MS)
+  setTimeout(check, INITIAL_CHECK_DELAY_MS)
+  setInterval(check, CHECK_INTERVAL_MS)
 }
 
 export function checkForUpdates(): void {
-  autoUpdater.checkForUpdatesAndNotify()
+  if (!app.isPackaged) {
+    publish({ status: 'up-to-date' })
+    return
+  }
+  autoUpdater.checkForUpdates().catch(() => publish({ status: 'error' }))
 }
 
+/**
+ * Installer la mise à jour téléchargée. L'appelant doit avoir levé le drapeau de sortie :
+ * sinon la fenêtre, qui se cache au lieu de se fermer, bloquerait le redémarrage.
+ */
 export function installUpdate(): void {
   if (IS_MAC) {
-    shell.openExternal(GITHUB_RELEASES_URL)
-  } else {
-    autoUpdater.quitAndInstall()
+    void shell.openExternal(RELEASES_URL)
+    return
   }
+  autoUpdater.quitAndInstall(false, true)
 }

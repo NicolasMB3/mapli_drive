@@ -1,6 +1,6 @@
 {
-  "name": "cmc-drive",
-  "version": "2.3.7",
+  "name": "mapli-drive",
+  "version": "3.0.0",
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
@@ -12,14 +12,18 @@
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix",
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"*.{json,mjs}\"",
-    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"*.{json,mjs}\""
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"*.{json,mjs}\"",
+    "typecheck": "tsc -b",
+    "test": "vitest run",
+    "preview:ui": "vite --config vite.preview.config.ts"
   },
   "keywords": [],
-  "author": "",
+  "author": "Mapli",
   "license": "MIT",
-  "description": "CMC Drive - WebDAV client",
+  "description": "Mapli Drive — le coffre-fort Mapli en lecteur dans l’Explorateur et le Finder",
   "devDependencies": {
     "@eslint/js": "^9.39.3",
+    "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^25.3.3",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
@@ -32,26 +36,32 @@
     "eslint-plugin-react-hooks": "^5.2.0",
     "prettier": "^3.8.1",
     "rcedit": "^5.0.2",
+    "tailwindcss": "^4.3.3",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.56.1",
-    "vite": "^7.3.1"
+    "vite": "^7.3.1",
+    "vitest": "^5.0.3"
   },
   "dependencies": {
+    "@fontsource-variable/geist": "^5.3.0",
+    "@fontsource-variable/geist-mono": "^5.3.0",
     "electron-store": "^11.0.2",
     "electron-updater": "^6.6.2",
+    "lucide-react": "^1.52.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4"
   },
   "build": {
-    "appId": "fr.cmc-06.cmc-drive",
-    "productName": "CMC Drive",
+    "appId": "fr.mapli.drive",
+    "productName": "Mapli Drive",
     "directories": {
       "output": "dist"
     },
     "win": {
       "target": "nsis",
       "icon": "build/icon.ico",
-      "signAndEditExecutable": false
+      "signAndEditExecutable": false,
+      "artifactName": "Mapli-Drive-Setup.${ext}"
     },
     "nsis": {
       "oneClick": false,
@@ -59,35 +69,63 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": false,
       "createStartMenuShortcut": true,
-      "shortcutName": "CMC Drive",
+      "shortcutName": "Mapli Drive",
       "installerIcon": "build/icon.ico",
       "uninstallerIcon": "build/icon.ico",
       "installerHeaderIcon": "build/icon.ico",
-      "include": "build/installer.nsh"
+      "include": "build/installer.nsh",
+      "uninstallDisplayName": "Mapli Drive",
+      "artifactName": "Mapli-Drive-Setup.${ext}",
+      "deleteAppDataOnUninstall": false
     },
     "mac": {
       "target": [
-        { "target": "dmg", "arch": ["universal"] },
-        { "target": "zip", "arch": ["universal"] }
+        {
+          "target": "dmg",
+          "arch": [
+            "universal"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "universal"
+          ]
+        }
       ],
       "icon": "build/icon.png",
-      "category": "public.app-category.utilities",
+      "category": "public.app-category.productivity",
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist",
       "hardenedRuntime": true,
-      "gatekeeperAssess": false
+      "gatekeeperAssess": false,
+      "extendInfo": {
+        "LSUIElement": true,
+        "NSHumanReadableCopyright": "Mapli"
+      },
+      "artifactName": "Mapli-Drive-mac.${ext}"
     },
     "dmg": {
       "contents": [
-        { "x": 130, "y": 220 },
-        { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
-      ]
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ],
+      "artifactName": "Mapli-Drive.${ext}",
+      "title": "Mapli Drive"
     },
     "afterPack": "./scripts/afterPack.cjs",
     "publish": {
       "provider": "github",
       "owner": "NicolasMB3",
-      "repo": "webdav_connect",
+      "repo": "mapli_drive",
       "releaseType": "release"
     },
     "files": [
@@ -99,6 +137,8 @@
         "from": "resources/",
         "to": "resources/"
       }
-    ]
-  }
+    ],
+    "copyright": "Mapli"
+  },
+  "homepage": "https://mapli.fr"
 }
