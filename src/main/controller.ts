@@ -431,7 +431,10 @@ export class DriveController extends EventEmitter {
     // Un dossier dont le nom vient d'être tapé attend encore : on y revient à la fin de l'attente.
     const settledAt = this.folderNames.nextReadyAt()
     if (settledAt !== null && this.state.employeeSpace) {
-      this.folderTimer = setTimeout(() => this.showNextPrompt(false), Math.max(0, settledAt - Date.now()) + 50)
+      this.folderTimer = setTimeout(
+        () => this.showNextPrompt(false),
+        Math.max(0, settledAt - Date.now()) + 50
+      )
     }
     this.update({ prompt })
     if (!prompt) {

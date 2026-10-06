@@ -1,4 +1,8 @@
-import type { EmployeeSpaceNewFolder, EmployeeSpacePrompt, EmployeeSpaceState } from '../shared/types'
+import type {
+  EmployeeSpaceNewFolder,
+  EmployeeSpacePrompt,
+  EmployeeSpaceState
+} from '../shared/types'
 
 /*
  * Espace salariés : ce que la petite fenêtre propose, dans l'ordre — d'abord les documents
@@ -75,7 +79,8 @@ export class FolderNames {
     for (const folder of folders) {
       alive.add(folder.id)
       const known = this.seen.get(folder.id)
-      if (!known || known.name !== folder.name) this.seen.set(folder.id, { name: folder.name, since: at })
+      if (!known || known.name !== folder.name)
+        this.seen.set(folder.id, { name: folder.name, since: at })
     }
     for (const id of [...this.seen.keys()]) if (!alive.has(id)) this.seen.delete(id)
   }

@@ -103,13 +103,21 @@ describe('nouveaux dossiers : proposés une fois nommés', () => {
   })
 
   it('ne propose pas un dossier qui porte encore son nom provisoire', () => {
-    for (const name of ['Nouveau dossier', 'Nouveau dossier (2)', 'New folder', 'dossier sans titre 3', 'Untitled Folder']) {
+    for (const name of [
+      'Nouveau dossier',
+      'Nouveau dossier (2)',
+      'New folder',
+      'dossier sans titre 3',
+      'Untitled Folder'
+    ]) {
       expect(isPlaceholderFolderName(name)).toBe(true)
       expect(nextPrompt(withFolders(folder(1, name)), new Set())).toBeNull()
     }
     expect(isPlaceholderFolderName('Nicolas BAAR')).toBe(false)
     expect(isPlaceholderFolderName('Nouveau dossier Dupont')).toBe(false)
-    expect(pendingCount(withFolders(folder(1, 'Nouveau dossier'), folder(2, 'Marie Martin')))).toBe(1)
+    expect(pendingCount(withFolders(folder(1, 'Nouveau dossier'), folder(2, 'Marie Martin')))).toBe(
+      1
+    )
   })
 
   it('attend que le nom tapé soit posé, et relance l’attente à chaque nouveau nom', () => {
