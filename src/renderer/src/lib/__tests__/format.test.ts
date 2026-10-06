@@ -18,6 +18,12 @@ describe('formatRelative', () => {
     expect(formatRelative('2026-10-05T09:00:00Z', now)).toBe('il y a 3 h')
     expect(formatRelative('2026-10-04T10:00:00Z', now)).toBe('hier')
   })
+
+  it('écrit la date en français au-delà de deux jours, et rien pour une date illisible', () => {
+    expect(formatRelative('2026-10-01T12:00:00Z', now)).toBe('1 oct.')
+    expect(formatRelative('', now)).toBe('')
+    expect(formatRelative('pas une date', now)).toBe('')
+  })
 })
 
 describe('helpers', () => {

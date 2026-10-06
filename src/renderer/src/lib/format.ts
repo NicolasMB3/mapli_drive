@@ -7,9 +7,12 @@ export function formatBytes(bytes: number): string {
   return `${value < 10 && i > 0 ? value.toFixed(1).replace('.', ',') : Math.round(value)} ${units[i]}`
 }
 
-/** « à l'instant », « il y a 4 min », « hier », « 3 oct. » */
+/** « à l'instant », « il y a 4 min », « hier », « 3 oct. » ; rien pour une date illisible. */
 export function formatRelative(iso: string, now = Date.now()): string {
-  const diff = Math.max(0, now - new Date(iso).getTime())
+  const time = new Date(iso).getTime()
+  // Sans quoi le navigateur écrirait « Invalid Date ».
+  if (Number.isNaN(time)) return ''
+  const diff = Math.max(0, now - time)
   const minutes = Math.floor(diff / 60_000)
   if (minutes < 1) return 'à l’instant'
   if (minutes < 60) return `il y a ${minutes} min`
