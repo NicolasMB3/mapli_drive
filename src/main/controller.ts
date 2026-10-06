@@ -7,16 +7,11 @@ import type {
   NewEmployeeInput,
   SpaceResult
 } from '../shared/types'
-import {
-  api,
-  ApiError,
-  NetworkError,
-  type DriveStatusPayload,
-  type EmployeeSpacePendingPayload
-} from './api'
+import { api, type DriveStatusPayload, type EmployeeSpacePendingPayload } from './api'
 import { WEB_URL } from './config'
 import { DriveMount } from './drive-mount'
 import { nextPrompt, promptIds, promptKey, pruneSnoozed } from './employee-space'
+import { ApiError, NetworkError } from './errors'
 import { PairingFlow } from './pairing'
 import { mountPathForOpen } from './platform'
 import {
@@ -29,6 +24,7 @@ import {
   type Device
 } from './session'
 import { statsDelay, uploadsSettled, type UploadSnapshot } from './upload-watch'
+import { frenchOr, toUserMessage, type ErrorContext } from './user-message'
 
 /*
  * Le cœur de Mapli Drive : relie le poste (appairage), monte le lecteur, le garde en
@@ -127,7 +123,7 @@ export class DriveController extends EventEmitter {
       const pairing = await this.pairing.start()
       this.update({ pairing })
     } catch (error) {
-      this.update({ phase: 'unpaired', error: this.message(error) })
+      this.update({ phase: 'unpaired', error: this.message(error, 'pairing') })
     }
   }
 
@@ -151,7 +147,7 @@ export class DriveController extends EventEmitter {
     try {
       saveDevice({ token: result.token, organization: result.organization, user: result.user })
     } catch (error) {
-      this.update({ phase: 'error', error: this.message(error) })
+      this.update({ phase: 'error', error: this.message(error, 'pairing') })
       return
     }
     this.device = loadDevice()
@@ -253,22 +249,38 @@ export class DriveController extends EventEmitter {
 
   /** Publier dans l'espace du salarié les documents déposés (et le prévenir par e-mail). */
   publishEmployeeSpace(requestIds: string[], notify: boolean): Promise<SpaceResult> {
-    return this.spaceAction((token) => api.employeeSpacePublish(token, requestIds, notify))
+    const published =
+      requestIds.length > 1 ? `${requestIds.length} documents publiés` : 'Document publié'
+    return this.spaceAction(
+      (token) => api.employeeSpacePublish(token, requestIds, notify),
+      `${published} dans son espace${notify ? ', avec un e-mail de notification' : ''}.`
+    )
   }
 
   /** Ne pas les publier : ils restent classés dans le dossier, sans arriver chez le salarié. */
   discardEmployeeSpace(requestIds: string[]): Promise<SpaceResult> {
-    return this.spaceAction((token) => api.employeeSpaceDiscard(token, requestIds))
+    return this.spaceAction(
+      (token) => api.employeeSpaceDiscard(token, requestIds),
+      requestIds.length > 1
+        ? 'Documents non publiés : ils restent classés dans le coffre.'
+        : 'Document non publié : il reste classé dans le coffre.'
+    )
   }
 
   /** Créer l'espace salarié de la personne dont on a créé le dossier à la main. */
   createEmployeeFromFolder(folderId: string, input: NewEmployeeInput): Promise<SpaceResult> {
-    return this.spaceAction((token) => api.employeeSpaceCreateEmployee(token, folderId, input))
+    return this.spaceAction(
+      (token) => api.employeeSpaceCreateEmployee(token, folderId, input),
+      'Espace salarié créé : un lien d’activation a été envoyé par e-mail.'
+    )
   }
 
   /** « Garder un simple dossier » : plus de proposition pour lui. */
   keepEmployeeFolder(folderId: string): Promise<SpaceResult> {
-    return this.spaceAction((token) => api.employeeSpaceKeepFolder(token, folderId))
+    return this.spaceAction(
+      (token) => api.employeeSpaceKeepFolder(token, folderId),
+      'Ce dossier reste un simple dossier.'
+    )
   }
 
   /** « Plus tard » : la fenêtre passe à la proposition suivante, ou se cache. */
@@ -289,8 +301,13 @@ export class DriveController extends EventEmitter {
     if (typeof url === 'string' && url.startsWith(`${WEB_URL}/`)) void shell.openExternal(url)
   }
 
+  /**
+   * Une action de la petite fenêtre. `done` : le mot de confirmation, si le serveur n'en
+   * donne pas en français.
+   */
   private async spaceAction(
-    call: (token: string) => Promise<{ message: string }>
+    call: (token: string) => Promise<{ message: string }>,
+    done: string
   ): Promise<SpaceResult> {
     if (!this.device) return { ok: false, message: 'Ce poste n’est pas relié à Mapli.' }
     try {
@@ -298,9 +315,9 @@ export class DriveController extends EventEmitter {
       // Relu tout de suite : la fenêtre passe à la suite (ou se cache, après sa confirmation).
       this.holdPopupUntil = Date.now() + 2_200
       this.applyEmployeeSpace(await api.employeeSpacePending(this.device.token))
-      return { ok: true, message }
+      return { ok: true, message: frenchOr(message, done) }
     } catch (error) {
-      return { ok: false, message: this.message(error) }
+      return { ok: false, message: this.message(error, 'space') }
     }
   }
 
@@ -419,7 +436,7 @@ export class DriveController extends EventEmitter {
     }
 
     if (error instanceof ApiError && error.status === 403) {
-      this.update({ phase: 'error', mounted: false, error: error.message })
+      this.update({ phase: 'error', mounted: false, error: this.message(error, 'connect') })
       return
     }
 
@@ -427,7 +444,7 @@ export class DriveController extends EventEmitter {
     this.update({
       phase: offline ? 'offline' : 'error',
       mounted: false,
-      error: this.message(error)
+      error: this.message(error, 'connect')
     })
     this.scheduleRetry()
   }
@@ -579,8 +596,10 @@ export class DriveController extends EventEmitter {
     }
   }
 
-  private message(error: unknown): string {
-    return error instanceof Error && error.message ? error.message : 'Une erreur est survenue.'
+  /** La phrase à montrer, en français ; le détail technique (souvent anglais) va à la console. */
+  private message(error: unknown, context: ErrorContext): string {
+    console.warn(`[Mapli Drive] ${context}`, error)
+    return toUserMessage(error, context)
   }
 
   private update(partial: Partial<DriveState>): void {

@@ -8,6 +8,7 @@ import { join } from 'path'
 import { app } from 'electron'
 import type { Transfer } from '../shared/types'
 import { VOLUME_NAME } from './config'
+import { UserFacingError } from './errors'
 import { notifyShell } from './explorer-notify'
 import { shellChangesFor } from './shell-changes'
 import { getRclonePath, isMountReady, IS_MAC, IS_WIN, mountPathForOpen } from './platform'
@@ -229,7 +230,7 @@ export class DriveMount {
   ): Promise<string> {
     const rclone = getRclonePath()
     if (!existsSync(rclone)) {
-      throw new Error('L’outil de montage est absent. Réinstallez Mapli Drive.')
+      throw new UserFacingError('L’outil de montage est absent. Réinstallez Mapli Drive.')
     }
 
     const dir = app.getPath('userData')
@@ -291,7 +292,7 @@ export class DriveMount {
     }
     this.proc = null
     this.rc = null
-    throw new Error(this.explainFailure(logFile))
+    throw new UserFacingError(this.explainFailure(logFile))
   }
 
   /** Message compréhensible à partir du journal de rclone. */
@@ -331,7 +332,7 @@ export class DriveMount {
 
       const timer = setTimeout(() => {
         proc.kill()
-        reject(new Error('Le montage a pris trop de temps. Réessayez dans un instant.'))
+        reject(new UserFacingError('Le montage a pris trop de temps. Réessayez dans un instant.'))
       }, MOUNT_TIMEOUT_MS)
 
       proc.on('close', (code) => {
@@ -339,7 +340,7 @@ export class DriveMount {
         const path = stdout.trim().replace(/\/+$/, '')
         if (code !== 0 || !path) {
           reject(
-            new Error(
+            new UserFacingError(
               /-128|annul/i.test(stderr)
                 ? 'Montage annulé.'
                 : 'Le lecteur n’a pas pu être monté. Réessayez dans un instant.'

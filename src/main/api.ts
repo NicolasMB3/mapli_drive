@@ -6,25 +6,17 @@ import type {
   NewEmployeeInput
 } from '../shared/types'
 import { API_URL } from './config'
+import { ApiError, NetworkError } from './errors'
+import { OFFLINE_MESSAGE } from './user-message'
 
 /*
  * Client de l'API Mapli (appairage du poste, état du lecteur). Passe par le réseau
  * d'Electron (proxy et certificats du système), avec un délai maximal par requête.
+ * Les erreurs gardent le message brut du serveur ; la fenêtre en reçoit une version
+ * française (user-message.ts).
  */
 
 const TIMEOUT_MS = 20_000
-
-export class ApiError extends Error {
-  constructor(
-    message: string,
-    public readonly status: number
-  ) {
-    super(message)
-  }
-}
-
-/** Réseau ou serveur injoignable (par opposition à une réponse d'erreur du serveur). */
-export class NetworkError extends Error {}
 
 async function request<T>(
   method: string,
@@ -41,21 +33,24 @@ async function request<T>(
       signal: controller.signal,
       headers: {
         Accept: 'application/json',
+        // Mapli Drive ne parle que français, quelle que soit la langue du système.
+        'Accept-Language': 'fr-FR,fr;q=0.9',
         'Content-Type': 'application/json',
         'User-Agent': `MapliDrive/${app.getVersion()}`,
         ...(options.token ? { Authorization: `Bearer ${options.token}` } : {})
       },
       body: options.body !== undefined ? JSON.stringify(options.body) : undefined
     })
-  } catch {
-    throw new NetworkError('Mapli est injoignable. Vérifiez votre connexion internet.')
+  } catch (error) {
+    throw new NetworkError(OFFLINE_MESSAGE, { cause: error })
   } finally {
     clearTimeout(timer)
   }
 
-  const payload = (await response.json().catch(() => ({}))) as { message?: string } & T
+  const payload = (await response.json().catch(() => ({}))) as { message?: unknown } & T
   if (!response.ok) {
-    throw new ApiError(payload.message || `Erreur ${response.status}`, response.status)
+    const message = typeof payload.message === 'string' ? payload.message : null
+    throw new ApiError(response.status, message)
   }
 
   return payload

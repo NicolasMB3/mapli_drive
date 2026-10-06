@@ -1,6 +1,7 @@
 import Store from 'electron-store'
 import { safeStorage } from 'electron'
 import type { DeviceInfo, DriveSettings } from '../shared/types'
+import { UserFacingError } from './errors'
 import { defaultMountPoint } from './platform'
 
 /*
@@ -42,7 +43,7 @@ export function loadDevice(): Device | null {
 
 export function saveDevice(device: Device): void {
   if (!safeStorage.isEncryptionAvailable()) {
-    throw new Error(
+    throw new UserFacingError(
       'Le chiffrement du système est indisponible : impossible de garder la connexion de ce poste.'
     )
   }
