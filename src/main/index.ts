@@ -1,3 +1,5 @@
+// En premier : une erreur imprévue, même au chargement des modules, s'affiche en français.
+import './crash-dialog'
 import { app, BrowserWindow, ipcMain, screen, shell } from 'electron'
 import { join } from 'path'
 import type { DriveSettings, NewEmployeeInput } from '../shared/types'
@@ -42,6 +44,10 @@ import { checkForUpdates, currentUpdateStatus, installUpdate, setupAutoUpdater }
  * Mapli Drive : l'application vit dans la zone de notification ; la fenêtre (créée à
  * la demande) affiche le lecteur, l'appairage et les réglages.
  */
+
+// Chromium en français (textes natifs, langue annoncée au réseau), comme le reste de
+// l'application, quelle que soit la langue du système. À poser avant « ready ».
+app.commandLine.appendSwitch('lang', 'fr')
 
 const controller = new DriveController()
 let mainWindow: BrowserWindow | null = null
