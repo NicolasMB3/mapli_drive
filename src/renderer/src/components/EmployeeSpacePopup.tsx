@@ -236,6 +236,17 @@ function FolderPrompt({
 }) {
   const [first, setFirst] = useState(folder.suggested.first_name)
   const [last, setLast] = useState(folder.suggested.last_name)
+  // Dossier renommé pendant que la fenêtre est ouverte : prénom et nom suivent le nouveau nom,
+  // tant que la personne ne les a pas changés elle-même.
+  const [suggestedFor, setSuggestedFor] = useState(folder.suggested)
+  if (
+    suggestedFor.first_name !== folder.suggested.first_name ||
+    suggestedFor.last_name !== folder.suggested.last_name
+  ) {
+    setSuggestedFor(folder.suggested)
+    if (first === suggestedFor.first_name) setFirst(folder.suggested.first_name)
+    if (last === suggestedFor.last_name) setLast(folder.suggested.last_name)
+  }
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
   const [line1, setLine1] = useState('')

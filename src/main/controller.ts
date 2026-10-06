@@ -11,7 +11,7 @@ import { api, type DriveStatusPayload, type EmployeeSpacePendingPayload } from '
 import { jittered, reconnectRetryDelay } from './backoff'
 import { API_URL, WEB_URL } from './config'
 import { DriveMount } from './drive-mount'
-import { nextPrompt, promptIds, promptKey, pruneSnoozed } from './employee-space'
+import { FolderNames, nextPrompt, promptIds, promptKey, pruneSnoozed } from './employee-space'
 import { ApiError, NetworkError } from './errors'
 import { LiveSync } from './live-sync'
 import { PairingFlow } from './pairing'
@@ -74,6 +74,9 @@ export class DriveController extends EventEmitter {
   /** Après une action réussie, la fenêtre reste le temps de son mot de confirmation. */
   private holdPopupUntil = 0
   private holdTimer: NodeJS.Timeout | null = null
+  /** Nouveaux dossiers : proposés une fois nommés (pas « Nouveau dossier ») et leur nom posé. */
+  private readonly folderNames = new FolderNames()
+  private folderTimer: NodeJS.Timeout | null = null
 
   private readonly pairing = new PairingFlow({
     onUpdate: (pairing) => this.update({ pairing }),
@@ -412,6 +415,7 @@ export class DriveController extends EventEmitter {
       seats: payload.seats
     }
     pruneSnoozed(space, this.snoozed)
+    this.folderNames.update(space.newFolders)
     this.update({ employeeSpace: space })
     this.showNextPrompt(false)
   }
@@ -420,8 +424,15 @@ export class DriveController extends EventEmitter {
   private showNextPrompt(force: boolean): void {
     if (this.holdTimer) clearTimeout(this.holdTimer)
     this.holdTimer = null
+    if (this.folderTimer) clearTimeout(this.folderTimer)
+    this.folderTimer = null
     const previous = promptKey(this.state.prompt)
-    const prompt = nextPrompt(this.state.employeeSpace, this.snoozed)
+    const prompt = nextPrompt(this.state.employeeSpace, this.snoozed, this.folderNames.ready)
+    // Un dossier dont le nom vient d'être tapé attend encore : on y revient à la fin de l'attente.
+    const settledAt = this.folderNames.nextReadyAt()
+    if (settledAt !== null && this.state.employeeSpace) {
+      this.folderTimer = setTimeout(() => this.showNextPrompt(false), Math.max(0, settledAt - Date.now()) + 50)
+    }
     this.update({ prompt })
     if (!prompt) {
       const wait = this.holdPopupUntil - Date.now()

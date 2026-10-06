@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { EmployeeSpaceState } from '../../shared/types'
 import {
+  FolderNames,
+  isPlaceholderFolderName,
   nextPrompt,
   pendingCount,
   promptKey,
@@ -83,5 +85,63 @@ describe('petite fenêtre de l’espace salariés', () => {
     expect(validIds('nope')).toEqual([])
     expect(validId(id(1))).toBe(id(1))
     expect(validId('../dossier')).toBeNull()
+  })
+})
+
+describe('nouveaux dossiers : proposés une fois nommés', () => {
+  const folder = (n: number, name: string) => ({
+    id: id(500 + n),
+    name,
+    suggested: { first_name: name.split(' ')[0] ?? '', last_name: name.split(' ')[1] ?? '' },
+    created_at: '',
+    web_url: ''
+  })
+  const withFolders = (...folders: ReturnType<typeof folder>[]): EmployeeSpaceState => ({
+    groups: [],
+    newFolders: folders,
+    seats: null
+  })
+
+  it('ne propose pas un dossier qui porte encore son nom provisoire', () => {
+    for (const name of ['Nouveau dossier', 'Nouveau dossier (2)', 'New folder', 'dossier sans titre 3', 'Untitled Folder']) {
+      expect(isPlaceholderFolderName(name)).toBe(true)
+      expect(nextPrompt(withFolders(folder(1, name)), new Set())).toBeNull()
+    }
+    expect(isPlaceholderFolderName('Nicolas BAAR')).toBe(false)
+    expect(isPlaceholderFolderName('Nouveau dossier Dupont')).toBe(false)
+    expect(pendingCount(withFolders(folder(1, 'Nouveau dossier'), folder(2, 'Marie Martin')))).toBe(1)
+  })
+
+  it('attend que le nom tapé soit posé, et relance l’attente à chaque nouveau nom', () => {
+    let now = 1_000
+    const names = new FolderNames(2_500, () => now)
+    const space = withFolders(folder(1, 'Nouveau dossier'))
+    names.update(space.newFolders)
+    expect(nextPrompt(space, new Set(), names.ready)).toBeNull()
+    expect(names.nextReadyAt()).toBeNull()
+
+    // Renommé : proposé 2,5 s plus tard seulement.
+    const renamed = withFolders(folder(1, 'Un compte'))
+    now = 2_000
+    names.update(renamed.newFolders)
+    expect(nextPrompt(renamed, new Set(), names.ready)).toBeNull()
+    expect(names.nextReadyAt()).toBe(4_500)
+
+    // Corrigé avant la fin de l'attente : l'attente repart.
+    const fixed = withFolders(folder(1, 'Camille Portail'))
+    now = 3_000
+    names.update(fixed.newFolders)
+    now = 5_000
+    expect(nextPrompt(fixed, new Set(), names.ready)).toBeNull()
+    now = 5_600
+    expect(nextPrompt(fixed, new Set(), names.ready)?.kind).toBe('folder')
+    expect(names.nextReadyAt()).toBeNull()
+  })
+
+  it('propose aussitôt un dossier arrivé déjà nommé et jamais vu (copié, glissé)', () => {
+    const names = new FolderNames(2_500, () => 10_000)
+    const space = withFolders(folder(1, 'Marie Martin'))
+    // Jamais relevé : rien ne dit qu'il vient d'être renommé.
+    expect(nextPrompt(space, new Set(), names.ready)?.kind).toBe('folder')
   })
 })
