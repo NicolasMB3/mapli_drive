@@ -31,7 +31,8 @@ export function rcloneMountArgs(o: MountOptions): string[] {
     'mount',
     ':webdav:',
     o.mountPoint,
-    // Fichiers ouverts mis en cache localement, écrits sur le serveur 5 s après fermeture.
+    // Fichiers ouverts mis en cache localement, écrits sur le serveur 3 s après fermeture
+    // (de quoi laisser une application finir d'enregistrer, sans faire attendre un dépôt).
     '--vfs-cache-mode',
     'full',
     '--vfs-cache-max-size',
@@ -39,7 +40,7 @@ export function rcloneMountArgs(o: MountOptions): string[] {
     '--vfs-cache-max-age',
     '24h',
     '--vfs-write-back',
-    '5s',
+    '3s',
     '--vfs-read-chunk-size',
     '32M',
     '--cache-dir',

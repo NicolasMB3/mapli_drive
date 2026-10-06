@@ -16,7 +16,7 @@ import { rcloneMountArgs, rcloneMountEnv } from './rclone-args'
 /*
  * Montage du coffre-fort en lecteur :
  *  - Windows : rclone (avec WinFsp, installé par l'installateur), lettre de lecteur,
- *    cache local des fichiers ouverts, écriture différée de 5 s ;
+ *    cache local des fichiers ouverts, écriture différée de 3 s ;
  *  - macOS : le client WebDAV du système (Finder), sans extension noyau.
  * Le démontage attend la fin des envois en cours : un fichier enregistré juste avant de
  * quitter part quand même.
@@ -36,6 +36,8 @@ export interface MountRequest {
 export interface MountStats {
   transfers: Transfer[]
   pendingUploads: number
+  /** Transferts terminés depuis le démarrage de rclone. */
+  completed: number
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -82,11 +84,11 @@ export class DriveMount {
   }
 
   async stats(): Promise<MountStats> {
-    if (!this.rc) return { transfers: [], pendingUploads: 0 }
+    if (!this.rc) return { transfers: [], pendingUploads: 0, completed: 0 }
 
     try {
       const [core, vfs] = await Promise.all([
-        this.rcPost<{ transferring?: Transfer[] }>('core/stats'),
+        this.rcPost<{ transferring?: Transfer[]; transfers?: number }>('core/stats'),
         this.rcPost<{ diskCache?: { uploadsInProgress?: number; uploadsQueued?: number } }>(
           'vfs/stats'
         )
@@ -100,10 +102,11 @@ export class DriveMount {
           speed: t.speed ?? 0
         })),
         pendingUploads:
-          (vfs.diskCache?.uploadsInProgress ?? 0) + (vfs.diskCache?.uploadsQueued ?? 0)
+          (vfs.diskCache?.uploadsInProgress ?? 0) + (vfs.diskCache?.uploadsQueued ?? 0),
+        completed: core.transfers ?? 0
       }
     } catch {
-      return { transfers: [], pendingUploads: 0 }
+      return { transfers: [], pendingUploads: 0, completed: 0 }
     }
   }
 

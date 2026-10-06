@@ -28,6 +28,7 @@ import {
   updateDeviceContext,
   type Device
 } from './session'
+import { statsDelay, uploadsSettled, type UploadSnapshot } from './upload-watch'
 
 /*
  * Le cœur de Mapli Drive : relie le poste (appairage), monte le lecteur, le garde en
@@ -59,6 +60,10 @@ export class DriveController extends EventEmitter {
   /** Espace salariés : proposé tant que la personne le gère (sinon, jusqu'à la prochaine connexion, plus rien). */
   private spaceAvailable = true
   private refreshingSpace = false
+  /** Relecture demandée pendant une autre (un envoi a fini entre-temps) : relancée juste après. */
+  private refreshSpaceAgain = false
+  /** Transferts terminés par rclone au dernier relevé. */
+  private completedTransfers = 0
   /** Propositions remises « à plus tard » (identifiants de demandes ou de dossiers). */
   private readonly snoozed = new Set<string>()
   /** Après une action réussie, la fenêtre reste le temps de son mot de confirmation. */
@@ -301,7 +306,12 @@ export class DriveController extends EventEmitter {
 
   private async refreshEmployeeSpace(): Promise<void> {
     if (!this.device || this.state.phase !== 'connected' || !this.spaceAvailable) return
-    if (this.refreshingSpace) return
+    // Une lecture part déjà, peut-être d'avant la fin de l'envoi : on relira juste après,
+    // sans quoi le dépôt qui vient d'arriver attendrait le prochain passage (20 s).
+    if (this.refreshingSpace) {
+      this.refreshSpaceAgain = true
+      return
+    }
     this.refreshingSpace = true
     try {
       this.applyEmployeeSpace(await api.employeeSpacePending(this.device.token))
@@ -314,6 +324,10 @@ export class DriveController extends EventEmitter {
       }
     } finally {
       this.refreshingSpace = false
+      if (this.refreshSpaceAgain) {
+        this.refreshSpaceAgain = false
+        void this.refreshEmployeeSpace()
+      }
     }
   }
 
@@ -480,21 +494,44 @@ export class DriveController extends EventEmitter {
     this.retryTimer = null
   }
 
+  /**
+   * Relève les envois de rclone (voir upload-watch) : un envoi terminé fait relire
+   * l'espace salariés, et la petite fenêtre propose aussitôt de publier le fichier déposé.
+   */
   private scheduleStats(): void {
     if (this.statsTimer) clearTimeout(this.statsTimer)
     if (this.state.phase !== 'connected') return
-    const delay = this.windowVisible ? 1_500 : 15_000
-    this.statsTimer = setTimeout(async () => {
-      const stats = await this.mount.stats()
-      const finished = this.state.transfers.length > 0 && stats.transfers.length === 0
-      this.update({ transfers: stats.transfers, pendingUploads: stats.pendingUploads })
-      if (finished) {
-        void this.refreshRecent()
-        // Un fichier vient d'arriver dans le dossier d'un salarié ? La fenêtre le propose.
-        void this.refreshEmployeeSpace()
-      }
-      this.scheduleStats()
-    }, delay)
+    this.statsTimer = setTimeout(
+      async () => {
+        const stats = await this.mount.stats()
+        const previous = this.uploadSnapshot()
+        this.completedTransfers = stats.completed
+        // Rien ne part ni n'attend, comme au relevé précédent : l'état ne change pas (pas de
+        // quoi redessiner l'icône et son menu toutes les 2,5 s).
+        const unchanged =
+          stats.pendingUploads === this.state.pendingUploads &&
+          stats.transfers.length === 0 &&
+          this.state.transfers.length === 0
+        if (!unchanged) {
+          this.update({ transfers: stats.transfers, pendingUploads: stats.pendingUploads })
+        }
+        if (uploadsSettled(previous, this.uploadSnapshot())) {
+          void this.refreshRecent()
+          // Un fichier vient d'arriver dans le dossier d'un salarié ? La fenêtre le propose.
+          void this.refreshEmployeeSpace()
+        }
+        this.scheduleStats()
+      },
+      statsDelay(this.windowVisible, this.uploadSnapshot())
+    )
+  }
+
+  private uploadSnapshot(): UploadSnapshot {
+    return {
+      transfers: this.state.transfers.length,
+      pendingUploads: this.state.pendingUploads,
+      completed: this.completedTransfers
+    }
   }
 
   private async refreshStatus(): Promise<void> {
