@@ -8,6 +8,7 @@ import type {
   SpaceResult
 } from '../shared/types'
 import { api, type DriveStatusPayload, type EmployeeSpacePendingPayload } from './api'
+import { jittered, reconnectRetryDelay } from './backoff'
 import { WEB_URL } from './config'
 import { DriveMount } from './drive-mount'
 import { nextPrompt, promptIds, promptKey, pruneSnoozed } from './employee-space'
@@ -34,10 +35,12 @@ import { frenchOr, toUserMessage, type ErrorContext } from './user-message'
 
 const STATUS_REFRESH_MS = 5 * 60_000
 const RECENT_REFRESH_MS = 60_000
-const HEALTH_CHECK_MS = 10_000
 /** Révision du coffre : de quoi voir un changement fait ailleurs en moins de 20 s. */
 const REVISION_POLL_MS = 20_000
-const RETRY_DELAYS_MS = [5_000, 15_000, 30_000, 60_000, 120_000]
+/** Santé du lecteur (port de contrôle de rclone), toutes les 30 s environ. */
+const HEALTH_CHECK_MS = 30_000
+/** Échecs consécutifs avant de remonter le lecteur. */
+const HEALTH_FAILURES = 2
 
 export class DriveController extends EventEmitter {
   private readonly mount = new DriveMount()
@@ -46,6 +49,8 @@ export class DriveController extends EventEmitter {
   private retryCount = 0
   private retryTimer: NodeJS.Timeout | null = null
   private timers: NodeJS.Timeout[] = []
+  private healthTimer: NodeJS.Timeout | null = null
+  private healthFailures = 0
   private statsTimer: NodeJS.Timeout | null = null
   private connecting = false
   private windowVisible = false
@@ -90,10 +95,11 @@ export class DriveController extends EventEmitter {
   }
 
   async init(): Promise<void> {
-    DriveMount.killOrphans()
+    // rclone resté d'une session interrompue : arrêté avant le montage, sans bloquer.
+    await DriveMount.cleanupOrphans()
 
     powerMonitor.on('resume', () => setTimeout(() => void this.reconnectIfNeeded(), 3_000))
-    this.timers.push(setInterval(() => void this.healthCheck(), HEALTH_CHECK_MS))
+    this.scheduleHealth()
     this.timers.push(setInterval(() => void this.refreshStatus(), STATUS_REFRESH_MS))
     this.timers.push(setInterval(() => void this.refreshRecent(), RECENT_REFRESH_MS))
     this.timers.push(setInterval(() => void this.checkRevision(), REVISION_POLL_MS))
@@ -191,6 +197,7 @@ export class DriveController extends EventEmitter {
       )
 
       this.retryCount = 0
+      this.healthFailures = 0
       this.update({ phase: 'connected', mounted: true, mountPoint: path })
       // Nouveau montage : la première révision lue relit aussi l'arborescence de l'Explorateur.
       this.revision = null
@@ -399,6 +406,7 @@ export class DriveController extends EventEmitter {
   /** Fermeture de l'application : démontage propre (envois terminés). */
   async shutdown(): Promise<void> {
     this.timers.forEach(clearInterval)
+    if (this.healthTimer) clearTimeout(this.healthTimer)
     this.clearRetry()
     if (this.statsTimer) clearTimeout(this.statsTimer)
     this.pairing.cancel()
@@ -446,7 +454,7 @@ export class DriveController extends EventEmitter {
       mounted: false,
       error: this.message(error, 'connect')
     })
-    this.scheduleRetry()
+    this.scheduleRetry(error)
   }
 
   private forgetDevice(notice: string | null): void {
@@ -482,26 +490,44 @@ export class DriveController extends EventEmitter {
     }
   }
 
+  private scheduleHealth(): void {
+    if (this.healthTimer) clearTimeout(this.healthTimer)
+    this.healthTimer = setTimeout(() => void this.healthCheck(), jittered(HEALTH_CHECK_MS, 0.2))
+  }
+
+  /** Le lecteur répond-il encore ? Vérifié sans bloquer (port de contrôle de rclone, délai de 5 s). */
   private async healthCheck(): Promise<void> {
-    if (this.state.phase === 'connected' && !this.mount.isMounted()) {
-      this.update({ phase: 'offline', mounted: false })
-      this.scheduleRetry()
+    try {
+      if (this.state.phase !== 'connected') return
+      const healthy = await this.mount.healthy()
+      if (this.state.phase !== 'connected') return
+      this.healthFailures = healthy ? 0 : this.healthFailures + 1
+      if (this.healthFailures >= HEALTH_FAILURES) {
+        this.healthFailures = 0
+        this.update({ phase: 'offline', mounted: false })
+        this.scheduleRetry()
+      }
+    } catch (error) {
+      console.warn('[Mapli Drive] santé du lecteur', error)
+    } finally {
+      this.scheduleHealth()
     }
   }
 
   private async reconnectIfNeeded(): Promise<void> {
+    if (!this.device) return
     if (
-      this.device &&
-      (this.state.phase === 'offline' ||
-        (this.state.phase === 'connected' && !this.mount.isMounted()))
+      this.state.phase === 'offline' ||
+      (this.state.phase === 'connected' && !(await this.mount.healthy()))
     ) {
       await this.connect()
     }
   }
 
-  private scheduleRetry(): void {
+  private scheduleRetry(error?: unknown): void {
     this.clearRetry()
-    const delay = RETRY_DELAYS_MS[Math.min(this.retryCount, RETRY_DELAYS_MS.length - 1)]
+    // Gigue pleine : après une panne, les postes ne reviennent pas tous à la même seconde.
+    const delay = reconnectRetryDelay(error, this.retryCount)
     this.retryCount += 1
     this.retryTimer = setTimeout(() => void this.connect(), delay)
   }

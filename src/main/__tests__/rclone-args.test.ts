@@ -52,4 +52,9 @@ describe('montage rclone', () => {
     expect(args[args.indexOf('--vfs-cache-mode') + 1]).toBe('full')
     expect(args[args.indexOf('--vfs-cache-max-size') + 1]).toBe('10G')
   })
+
+  it('logs warnings and errors only', () => {
+    const args = rcloneMountArgs(options)
+    expect(args[args.indexOf('--log-level') + 1]).toBe('NOTICE')
+  })
 })

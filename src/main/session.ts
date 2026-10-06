@@ -19,6 +19,8 @@ interface Schema {
   device?: StoredDevice
   settings?: Partial<DriveSettings>
   launched?: boolean
+  /** Le PID de rclone est noté à chaque montage (nettoyage au démarrage). */
+  pidTracking?: boolean
 }
 
 const store = new Store<Schema>({ name: 'mapli-drive' })
@@ -87,4 +89,22 @@ export function isFirstLaunch(): boolean {
 
 export function markLaunched(): void {
   store.set('launched', true)
+}
+
+/** Écriture accessoire : un disque plein ou verrouillé ne doit rien interrompre. */
+function quietly(write: () => void): void {
+  try {
+    write()
+  } catch {
+    // Refait au prochain démarrage.
+  }
+}
+
+/** Aucun PID de rclone n'a encore été noté (première version qui le fait) ? */
+export function needsLegacyOrphanSweep(): boolean {
+  return !store.get('pidTracking')
+}
+
+export function markPidTracking(): void {
+  if (!store.get('pidTracking')) quietly(() => store.set('pidTracking', true))
 }

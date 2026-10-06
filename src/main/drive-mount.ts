@@ -1,6 +1,6 @@
 import { spawn, execFile, execFileSync, type ChildProcess } from 'child_process'
 import { randomBytes } from 'crypto'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, writeFileSync } from 'fs'
 import { readdir } from 'fs/promises'
 import http from 'http'
 import { createServer } from 'net'
@@ -10,9 +10,18 @@ import type { Transfer } from '../shared/types'
 import { VOLUME_NAME } from './config'
 import { UserFacingError } from './errors'
 import { notifyShell } from './explorer-notify'
+import {
+  killRecordedOrphan,
+  parseTasklist,
+  recordPid,
+  clearPid,
+  type ProcessProbe
+} from './orphans'
 import { shellChangesFor } from './shell-changes'
-import { getRclonePath, isMountReady, IS_MAC, IS_WIN, mountPathForOpen } from './platform'
+import { getRclonePath, IS_MAC, IS_WIN, mountPathForOpen, probePath, systemTool } from './platform'
 import { rcloneMountArgs, rcloneMountEnv } from './rclone-args'
+import { readLogTail, trimLog } from './rclone-log'
+import { markPidTracking, needsLegacyOrphanSweep } from './session'
 
 /*
  * Montage du coffre-fort en lecteur :
@@ -25,6 +34,10 @@ import { rcloneMountArgs, rcloneMountEnv } from './rclone-args'
 
 const MOUNT_TIMEOUT_MS = 30_000
 const UPLOAD_FLUSH_TIMEOUT_MS = 30_000
+/** Délai de réponse du port de contrôle de rclone pour le juger en vie. */
+const HEALTH_TIMEOUT_MS = 5_000
+/** Journal de rclone surveillé (taille) au plus une fois par heure. */
+const LOG_CHECK_MS = 60 * 60_000
 
 export interface MountRequest {
   davUrl: string
@@ -41,7 +54,30 @@ export interface MountStats {
   completed: number
 }
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
+
+/** Processus du poste vus par tasklist (sans PowerShell), pour le nettoyage au démarrage. */
+const windowsProcesses: ProcessProbe = {
+  imageName: (pid) =>
+    new Promise((resolve) => {
+      execFile(
+        systemTool('tasklist.exe'),
+        ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH'],
+        { windowsHide: true, timeout: 5_000 },
+        (error, stdout) => resolve(error ? null : parseTasklist(String(stdout)))
+      )
+    }),
+  kill: (pid) => process.kill(pid),
+  alive: (pid) => {
+    try {
+      process.kill(pid, 0)
+      return true
+    } catch (error) {
+      return (error as NodeJS.ErrnoException).code === 'EPERM'
+    }
+  },
+  sleep
+}
 
 function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -68,6 +104,8 @@ export class DriveMount {
   private proc: ChildProcess | null = null
   private rc: { port: number; user: string; pass: string } | null = null
   private mountedPath: string | null = null
+  private logFile: string | null = null
+  private logCheckedAt = 0
 
   /** Monte le lecteur ; renvoie le chemin réellement monté. */
   async mount(request: MountRequest, onExit?: (code: number | null) => void): Promise<string> {
@@ -76,12 +114,38 @@ export class DriveMount {
     return IS_MAC ? this.mountMac(request) : this.mountWindows(request, onExit)
   }
 
-  isMounted(): boolean {
-    return this.mountedPath !== null && isMountReady(this.mountedPath)
-  }
-
   get path(): string | null {
     return this.mountedPath
+  }
+
+  /**
+   * Le lecteur répond-il ? Sans jamais bloquer le processus principal : sous Windows, le
+   * port de contrôle de rclone (délai de 5 s) ; sous macOS, la présence du volume (un
+   * serveur lent ne compte pas comme un démontage).
+   */
+  async healthy(): Promise<boolean> {
+    const path = this.mountedPath
+    if (!path) return false
+    if (IS_MAC) return (await probePath(path, HEALTH_TIMEOUT_MS)) !== 'missing'
+    if (!this.proc || this.proc.exitCode !== null || !this.rc) return false
+    void this.maintainLog()
+    try {
+      await this.rcPost('core/pid', {}, HEALTH_TIMEOUT_MS)
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  /** Journal de rclone borné à 10 Mo (vérifié au plus une fois par heure). */
+  private async maintainLog(): Promise<void> {
+    if (!this.logFile || Date.now() - this.logCheckedAt < LOG_CHECK_MS) return
+    this.logCheckedAt = Date.now()
+    try {
+      await trimLog(this.logFile)
+    } catch {
+      // Journal verrouillé : ce sera pour la prochaine fois.
+    }
   }
 
   async stats(): Promise<MountStats> {
@@ -203,25 +267,33 @@ export class DriveMount {
     this.mountedPath = null
   }
 
-  /** Processus rclone laissés par une session précédente (plantage) : arrêtés avant de remonter. */
-  static killOrphans(): void {
+  /**
+   * rclone laissé par une session précédente (plantage, arrêt forcé) : arrêté avant de
+   * remonter, sans bloquer le démarrage. Par son PID, noté à chaque montage ; la première
+   * fois après la mise à jour (aucun PID encore noté), une recherche par chemin, une fois.
+   */
+  static async cleanupOrphans(): Promise<void> {
     if (!IS_WIN) return
+    const outcome = await killRecordedOrphan(app.getPath('userData'), windowsProcesses)
+    if (outcome === 'none' && needsLegacyOrphanSweep()) await DriveMount.legacyOrphanSweep()
+    markPidTracking()
+  }
+
+  private static legacyOrphanSweep(): Promise<void> {
     const binary = getRclonePath().replace(/'/g, "''")
-    try {
-      execFileSync(
-        'powershell.exe',
+    return new Promise((resolve) => {
+      execFile(
+        systemTool('WindowsPowerShell\\v1.0\\powershell.exe'),
         [
           '-NoProfile',
-          '-WindowStyle',
-          'Hidden',
+          '-NonInteractive',
           '-Command',
           `Get-Process rclone -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq '${binary}' } | ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }`
         ],
-        { windowsHide: true, timeout: 10_000 }
+        { windowsHide: true, timeout: 10_000 },
+        () => resolve()
       )
-    } catch {
-      // aucun processus
-    }
+    })
   }
 
   private async mountWindows(
@@ -239,6 +311,13 @@ export class DriveMount {
     const cacheDir = join(dir, 'cache')
     mkdirSync(cacheDir, { recursive: true })
     const logFile = join(dir, 'rclone.log')
+    this.logFile = logFile
+    this.logCheckedAt = Date.now()
+    try {
+      await trimLog(logFile)
+    } catch {
+      // Journal verrouillé (rclone d'une session précédente ?) : il sera raccourci plus tard.
+    }
 
     const rc = {
       port: await freePort(),
@@ -267,8 +346,12 @@ export class DriveMount {
     })
     this.proc = proc
     this.rc = rc
+    // Noté pour le nettoyage au prochain démarrage si l'application s'arrêtait brutalement.
+    const pid = proc.pid
+    if (pid) void recordPid(dir, pid)
 
     proc.on('exit', (code) => {
+      if (pid) void clearPid(dir, pid)
       if (this.proc !== proc) return
       this.proc = null
       this.rc = null
@@ -276,10 +359,13 @@ export class DriveMount {
       onExit?.(code)
     })
 
+    // Lecteur prêt ? Vérifié sans bloquer le processus principal (le système de fichiers
+    // naissant peut tarder à répondre).
+    const root = mountPathForOpen(request.mountPoint)
     const deadline = Date.now() + MOUNT_TIMEOUT_MS
     while (Date.now() < deadline && proc.exitCode === null) {
       await sleep(400)
-      if (isMountReady(request.mountPoint)) {
+      if (proc.exitCode === null && (await probePath(root, 2_000)) === 'ok') {
         this.mountedPath = request.mountPoint
         return request.mountPoint
       }
@@ -292,17 +378,12 @@ export class DriveMount {
     }
     this.proc = null
     this.rc = null
-    throw new UserFacingError(this.explainFailure(logFile))
+    throw new UserFacingError(await this.explainFailure(logFile))
   }
 
-  /** Message compréhensible à partir du journal de rclone. */
-  private explainFailure(logFile: string): string {
-    let log = ''
-    try {
-      log = readFileSync(logFile, 'utf8').split('\n').slice(-40).join('\n')
-    } catch {
-      // pas de journal
-    }
+  /** Message compréhensible à partir du journal de rclone (sa fin seulement). */
+  private async explainFailure(logFile: string): Promise<string> {
+    const log = (await readLogTail(logFile)).split('\n').slice(-40).join('\n')
 
     if (/winfsp|cgofuse/i.test(log))
       return 'Le composant WinFsp est manquant. Réinstallez Mapli Drive.'
@@ -366,7 +447,11 @@ export class DriveMount {
     })
   }
 
-  private rcPost<T = unknown>(endpoint: string, body: Record<string, unknown> = {}): Promise<T> {
+  private rcPost<T = unknown>(
+    endpoint: string,
+    body: Record<string, unknown> = {},
+    timeoutMs = 5_000
+  ): Promise<T> {
     const rc = this.rc
     if (!rc) return Promise.reject(new Error('rclone arrêté'))
 
@@ -378,7 +463,7 @@ export class DriveMount {
           port: rc.port,
           path: `/${endpoint}`,
           method: 'POST',
-          timeout: 5_000,
+          timeout: timeoutMs,
           headers: {
             'Content-Type': 'application/json',
             'Content-Length': Buffer.byteLength(data),

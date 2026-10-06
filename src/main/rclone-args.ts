@@ -66,10 +66,11 @@ export function rcloneMountArgs(o: MountOptions): string[] {
     '--rc',
     '--rc-addr',
     `127.0.0.1:${o.rcPort}`,
+    // Avertissements et erreurs seulement (journal borné à 10 Mo, voir rclone-log.ts).
     '--log-file',
     o.logFile,
     '--log-level',
-    'INFO'
+    'NOTICE'
   ]
 }
 

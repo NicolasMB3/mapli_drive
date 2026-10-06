@@ -1,5 +1,6 @@
 import { join } from 'path'
 import { existsSync } from 'fs'
+import { stat } from 'fs/promises'
 import { app } from 'electron'
 
 export const IS_WIN = process.platform === 'win32'
@@ -25,8 +26,30 @@ export function getTrayIconPath(variant?: 'ok' | 'busy' | 'error'): string {
   return resource(variant ? `tray-${variant}.png` : 'tray-icon.png')
 }
 
-export function isMountReady(mountPoint: string): boolean {
-  return IS_WIN ? existsSync(`${mountPoint}\\`) : existsSync(mountPoint)
+/** Outil de Windows par son chemin complet (jamais cherché dans le PATH ni le dossier courant). */
+export function systemTool(relative: string): string {
+  return join(process.env.SystemRoot || 'C:\\Windows', 'System32', relative)
+}
+
+/**
+ * Le chemin répond-il ? Sans bloquer le processus principal (un lecteur réseau figé peut
+ * faire attendre un appel synchrone plusieurs secondes) : « ok », « missing » (absent) ou
+ * « timeout » (pas de réponse dans le délai).
+ */
+export function probePath(path: string, timeoutMs: number): Promise<'ok' | 'missing' | 'timeout'> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve('timeout'), timeoutMs)
+    stat(path).then(
+      () => {
+        clearTimeout(timer)
+        resolve('ok')
+      },
+      () => {
+        clearTimeout(timer)
+        resolve('missing')
+      }
+    )
+  })
 }
 
 export function mountPathForOpen(mountPoint: string): string {
