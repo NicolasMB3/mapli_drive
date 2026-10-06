@@ -54,6 +54,37 @@ let mainWindow: BrowserWindow | null = null
 // Fermer la fenêtre la cache ; seul « Quitter » (ou une mise à jour) quitte vraiment.
 let quitting = false
 
+/** Une fenêtre cachée depuis 5 min est détruite (60 à 90 Mo rendus) ; recréée à la demande. */
+const DESTROY_HIDDEN_AFTER_MS = 5 * 60_000
+
+/** L'état n'est envoyé qu'aux fenêtres visibles ; une fenêtre qui réapparaît le reçoit aussitôt. */
+function sendState(win: BrowserWindow | null): void {
+  if (win && !win.isDestroyed()) win.webContents.send(IPC_DRIVE_STATE_CHANGED, controller.state)
+}
+
+function destroyWhenHidden(win: BrowserWindow, onDestroyed: () => void): void {
+  let timer: NodeJS.Timeout | null = null
+  const cancel = (): void => {
+    if (timer) clearTimeout(timer)
+    timer = null
+  }
+  const arm = (): void => {
+    cancel()
+    timer = setTimeout(() => {
+      timer = null
+      if (!win.isDestroyed() && !win.isVisible()) win.destroy()
+    }, DESTROY_HIDDEN_AFTER_MS)
+  }
+  // Armé dès la création : une fenêtre jamais montrée (proposition retirée entre-temps) part aussi.
+  arm()
+  win.on('hide', arm)
+  win.on('show', cancel)
+  win.on('closed', () => {
+    cancel()
+    onDestroyed()
+  })
+}
+
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
     width: 420,
@@ -81,12 +112,19 @@ function createWindow(): BrowserWindow {
   }
 
   win.once('ready-to-show', () => win.show())
-  win.on('show', () => controller.setWindowVisible(true))
+  win.on('show', () => {
+    sendState(win)
+    controller.setWindowVisible(true)
+  })
+  win.on('restore', () => sendState(win))
   win.on('hide', () => controller.setWindowVisible(false))
   win.on('close', (event) => {
     if (quitting) return
     event.preventDefault()
     win.hide()
+  })
+  destroyWhenHidden(win, () => {
+    if (mainWindow === win) mainWindow = null
   })
 
   // Liens externes : navigateur du système, jamais dans la fenêtre de l'application.
@@ -104,6 +142,8 @@ function createWindow(): BrowserWindow {
 function showWindow(): void {
   if (!mainWindow || mainWindow.isDestroyed()) mainWindow = createWindow()
   else {
+    // L'état d'abord : la fenêtre ne montre pas, même un instant, celui d'avant.
+    sendState(mainWindow)
     mainWindow.show()
     mainWindow.focus()
   }
@@ -165,11 +205,16 @@ function createPopupWindow(): BrowserWindow {
     placePopup(win)
     if (controller.state.prompt) win.showInactive()
   })
+  win.on('show', () => sendState(win))
   win.on('close', (event) => {
     // Fermer = « Plus tard » ; la fenêtre reste prête pour la prochaine proposition.
     if (quitting) return
     event.preventDefault()
     controller.laterEmployeeSpace()
+  })
+  // Recréée en moins d'une seconde à la prochaine proposition.
+  destroyWhenHidden(win, () => {
+    if (popupWindow === win) popupWindow = null
   })
   win.webContents.setWindowOpenHandler(({ url }) => {
     controller.openSpaceWeb(url)
@@ -187,6 +232,7 @@ function showPopup(): void {
     popupWindow = createPopupWindow()
     return
   }
+  sendState(popupWindow)
   placePopup(popupWindow)
   popupWindow.showInactive()
 }
@@ -290,9 +336,10 @@ ipcMain.handle(IPC_UPDATER_INSTALL, () => {
   installUpdate()
 })
 
-controller.on('state', (state) => {
+// Fenêtres cachées : rien n'est envoyé (elles reçoivent l'état en réapparaissant).
+controller.on('state', () => {
   for (const win of [mainWindow, popupWindow]) {
-    if (win && !win.isDestroyed()) win.webContents.send(IPC_DRIVE_STATE_CHANGED, state)
+    if (win && !win.isDestroyed() && win.isVisible() && !win.isMinimized()) sendState(win)
   }
 })
 

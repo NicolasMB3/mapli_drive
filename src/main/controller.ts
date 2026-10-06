@@ -24,6 +24,7 @@ import {
   updateDeviceContext,
   type Device
 } from './session'
+import { changedKeys } from './state-diff'
 import { statsDelay, uploadsSettled, type UploadSnapshot } from './upload-watch'
 import { frenchOr, toUserMessage, type ErrorContext } from './user-message'
 
@@ -628,7 +629,9 @@ export class DriveController extends EventEmitter {
     return toUserMessage(error, context)
   }
 
+  /** Seulement si quelque chose change : l'icône, son menu et les fenêtres ne sont pas redessinés pour rien. */
   private update(partial: Partial<DriveState>): void {
+    if (changedKeys(this.state, partial).length === 0) return
     this.state = { ...this.state, ...partial }
     this.emit('state', this.state)
   }

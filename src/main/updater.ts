@@ -1,7 +1,8 @@
 import { autoUpdater } from 'electron-updater'
-import { app, shell, type BrowserWindow } from 'electron'
+import { app, net, shell, type BrowserWindow } from 'electron'
 import type { UpdateStatus } from '../shared/types'
 import { IPC_UPDATER_STATUS } from '../shared/ipc-channels'
+import { jittered } from './backoff'
 import { IS_MAC } from './platform'
 import { WEB_URL } from './config'
 
@@ -45,10 +46,18 @@ export function setupAutoUpdater(windowGetter: () => BrowserWindow | null): void
   autoUpdater.on('error', () => publish({ status: 'error' }))
 
   const check = (): void => {
+    // Hors ligne : ce sera pour le prochain passage.
+    if (!net.isOnline()) return
     autoUpdater.checkForUpdates().catch(() => publish({ status: 'error' }))
   }
-  setTimeout(check, INITIAL_CHECK_DELAY_MS)
-  setInterval(check, CHECK_INTERVAL_MS)
+  // Toutes les 4 h à ±20 % près : les postes ne vont pas tous chercher la mise à jour ensemble.
+  const schedule = (delay: number): void => {
+    setTimeout(() => {
+      check()
+      schedule(jittered(CHECK_INTERVAL_MS, 0.2))
+    }, delay)
+  }
+  schedule(INITIAL_CHECK_DELAY_MS)
 }
 
 export function checkForUpdates(): void {

@@ -1,8 +1,9 @@
-import { Menu, Tray, app, nativeImage } from 'electron'
+import { Menu, Tray, app, nativeImage, type MenuItemConstructorOptions } from 'electron'
 import type { DriveState } from '../shared/types'
 import { PRODUCT_NAME } from './config'
 import { pendingCount } from './employee-space'
 import { getTrayIconPath, IS_MAC } from './platform'
+import { menuSignature } from './state-diff'
 import type { DriveController } from './controller'
 
 /*
@@ -61,55 +62,67 @@ export function createTray(
     }
   }
 
+  // Ce qui est affiché : l'icône, son infobulle et son menu ne sont refaits que s'ils changent.
+  const shown = { icon: '', tooltip: '', menu: '' }
+
   const refresh = (state: DriveState): void => {
-    tray.setImage(iconFor(state.phase))
-    tray.setToolTip(`${PRODUCT_NAME} — ${label(state)}`)
+    const icon = IS_MAC ? 'base' : (VARIANT[state.phase] ?? 'base')
+    if (icon !== shown.icon) {
+      tray.setImage(iconFor(state.phase))
+      shown.icon = icon
+    }
+    const tooltip = `${PRODUCT_NAME} — ${label(state)}`
+    if (tooltip !== shown.tooltip) {
+      tray.setToolTip(tooltip)
+      shown.tooltip = tooltip
+    }
     // Espace salariés : ce qui attend une décision (documents à publier, dossiers à compléter).
     const waiting = pendingCount(state.employeeSpace)
 
-    tray.setContextMenu(
-      Menu.buildFromTemplate([
-        {
-          label: state.device
-            ? `${PRODUCT_NAME} · ${state.device.organization.name}`
-            : PRODUCT_NAME,
-          enabled: false
-        },
-        { label: label(state), enabled: false },
-        { type: 'separator' },
-        ...(waiting > 0
-          ? [
-              { label: `Espace salariés · ${waiting} à valider`, click: showEmployeeSpace },
-              { type: 'separator' as const }
-            ]
-          : []),
-        ...(state.phase === 'connected'
-          ? [
-              {
-                label: `Ouvrir le lecteur ${state.mountPoint}`,
-                click: () => controller.openDrive()
-              }
-            ]
-          : []),
-        { label: `Ouvrir ${PRODUCT_NAME}`, click: showWindow },
-        ...(state.device
-          ? [{ label: 'Coffre-fort sur le web', click: () => controller.openWeb() }]
-          : []),
-        ...(state.phase === 'connected'
+    const template: MenuItemConstructorOptions[] = [
+      {
+        label: state.device ? `${PRODUCT_NAME} · ${state.device.organization.name}` : PRODUCT_NAME,
+        enabled: false
+      },
+      { label: label(state), enabled: false },
+      { type: 'separator' },
+      ...(waiting > 0
+        ? [
+            { label: `Espace salariés · ${waiting} à valider`, click: showEmployeeSpace },
+            { type: 'separator' as const }
+          ]
+        : []),
+      ...(state.phase === 'connected'
+        ? [
+            {
+              label: `Ouvrir le lecteur ${state.mountPoint}`,
+              click: () => controller.openDrive()
+            }
+          ]
+        : []),
+      { label: `Ouvrir ${PRODUCT_NAME}`, click: showWindow },
+      ...(state.device
+        ? [{ label: 'Coffre-fort sur le web', click: () => controller.openWeb() }]
+        : []),
+      ...(state.phase === 'connected'
+        ? [
+            { type: 'separator' as const },
+            { label: 'Mettre en pause', click: () => void controller.pause() }
+          ]
+        : state.phase === 'paused' || state.phase === 'offline'
           ? [
               { type: 'separator' as const },
-              { label: 'Mettre en pause', click: () => void controller.pause() }
+              { label: 'Reprendre', click: () => void controller.resume() }
             ]
-          : state.phase === 'paused' || state.phase === 'offline'
-            ? [
-                { type: 'separator' as const },
-                { label: 'Reprendre', click: () => void controller.resume() }
-              ]
-            : []),
-        { type: 'separator' },
-        { label: 'Quitter', click: () => app.quit() }
-      ])
-    )
+          : []),
+      { type: 'separator' },
+      { label: 'Quitter', click: () => app.quit() }
+    ]
+    const menu = menuSignature(template)
+    if (menu !== shown.menu) {
+      tray.setContextMenu(Menu.buildFromTemplate(template))
+      shown.menu = menu
+    }
   }
 
   refresh(controller.state)
