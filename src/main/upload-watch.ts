@@ -2,7 +2,8 @@
  * Suivi des envois de rclone, à part pour être testé : à quel rythme relever ses
  * statistiques, et quand un envoi vient de se terminer. Un fichier déposé dans le dossier
  * d'un salarié doit faire apparaître la petite fenêtre « Publier ? » dès son arrivée sur
- * le serveur, pas au prochain passage de la révision (20 s).
+ * le serveur : le serveur l'annonce (temps réel), et la fin de l'envoi la redemande aussi
+ * — c'est le seul signal sans temps réel.
  */
 
 export interface UploadSnapshot {
@@ -23,10 +24,21 @@ export const STATS_ACTIVE_MS = 1_000
  */
 export const STATS_IDLE_MS = 2_500
 
+/**
+ * Connexion temps réel établie : le serveur annonce lui-même le dépôt, le relevé peut
+ * s'espacer (le compteur cumulé de rclone rattrape un envoi fini entre deux relevés).
+ */
+export const STATS_IDLE_PUSH_MS = 10_000
+
 const busy = (s: UploadSnapshot): boolean => s.transfers > 0 || s.pendingUploads > 0
 
-export function statsDelay(windowVisible: boolean, current: UploadSnapshot): number {
-  return windowVisible || busy(current) ? STATS_ACTIVE_MS : STATS_IDLE_MS
+export function statsDelay(
+  windowVisible: boolean,
+  current: UploadSnapshot,
+  pushed = false
+): number {
+  if (windowVisible || busy(current)) return STATS_ACTIVE_MS
+  return pushed ? STATS_IDLE_PUSH_MS : STATS_IDLE_MS
 }
 
 /**

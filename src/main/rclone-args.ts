@@ -45,9 +45,11 @@ export function rcloneMountArgs(o: MountOptions): string[] {
     '32M',
     '--cache-dir',
     o.cacheDir,
-    // Les changements faits ailleurs (web, autres postes) apparaissent sous 30 s.
+    // Listes de dossiers gardées 10 min : les changements faits ailleurs (web, autres
+    // postes) sont annoncés par le serveur, et seuls les dossiers touchés sont oubliés
+    // (vfs/forget) ; sans temps réel, un changement de révision fait tout oublier.
     '--dir-cache-time',
-    '30s',
+    '10m',
     '--attr-timeout',
     '1s',
     '--vfs-case-insensitive',

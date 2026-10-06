@@ -53,6 +53,11 @@ describe('montage rclone', () => {
     expect(args[args.indexOf('--vfs-cache-max-size') + 1]).toBe('10G')
   })
 
+  it('keeps folder listings 10 minutes: changes made elsewhere are pushed and forgotten folder by folder', () => {
+    const args = rcloneMountArgs(options)
+    expect(args[args.indexOf('--dir-cache-time') + 1]).toBe('10m')
+  })
+
   it('logs warnings and errors only', () => {
     const args = rcloneMountArgs(options)
     expect(args[args.indexOf('--log-level') + 1]).toBe('NOTICE')

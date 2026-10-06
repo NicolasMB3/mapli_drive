@@ -9,7 +9,8 @@ import { app } from 'electron'
 import type { Transfer } from '../shared/types'
 import { VOLUME_NAME } from './config'
 import { UserFacingError } from './errors'
-import { notifyShell } from './explorer-notify'
+import { helperArgs, ShellNotifier } from './explorer-notify'
+import { forgetParams, TRASH_FOLDER, type InvalidationPlan } from './invalidation'
 import {
   killRecordedOrphan,
   parseTasklist,
@@ -17,8 +18,16 @@ import {
   clearPid,
   type ProcessProbe
 } from './orphans'
-import { shellChangesFor } from './shell-changes'
-import { getRclonePath, IS_MAC, IS_WIN, mountPathForOpen, probePath, systemTool } from './platform'
+import { shellChangesFor, type ShellChange } from './shell-changes'
+import {
+  getRclonePath,
+  getShellHelperPath,
+  IS_MAC,
+  IS_WIN,
+  mountPathForOpen,
+  probePath,
+  systemTool
+} from './platform'
 import { rcloneMountArgs, rcloneMountEnv } from './rclone-args'
 import { readLogTail, trimLog } from './rclone-log'
 import { markPidTracking, needsLegacyOrphanSweep } from './session'
@@ -52,6 +61,17 @@ export interface MountStats {
   pendingUploads: number
   /** Transferts terminés depuis le démarrage de rclone. */
   completed: number
+  /** Erreurs comptées par rclone, et la dernière (ex. un 401 : le poste a été révoqué). */
+  errors: number
+  lastError: string | null
+}
+
+const NO_STATS: MountStats = {
+  transfers: [],
+  pendingUploads: 0,
+  completed: 0,
+  errors: 0,
+  lastError: null
 }
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
@@ -79,6 +99,11 @@ const windowsProcesses: ProcessProbe = {
   sleep
 }
 
+/** Chemin Windows d'un dossier du lecteur (« Clients/Factures » → « M:\Clients\Factures »). */
+function windowsPath(root: string, relative: string): string {
+  return relative ? root + relative.replace(/\//g, '\\') : root
+}
+
 function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const server = createServer()
@@ -104,12 +129,26 @@ export class DriveMount {
   private proc: ChildProcess | null = null
   private rc: { port: number; user: string; pass: string } | null = null
   private mountedPath: string | null = null
+  /** Dossiers de premier niveau à la dernière lecture de la racine (null : pas encore lue). */
+  private topFolders: string[] | null = null
   private logFile: string | null = null
   private logCheckedAt = 0
+
+  /** Un seul assistant de notification de l'Explorateur pour toute la session (Windows). */
+  private readonly notifier = new ShellNotifier({
+    spawn: () =>
+      spawn(
+        systemTool('WindowsPowerShell\\v1.0\\powershell.exe'),
+        helperArgs(getShellHelperPath()),
+        { windowsHide: true, stdio: ['pipe', 'pipe', 'ignore'] }
+      ),
+    log: (message) => console.warn(`[Mapli Drive] ${message}`)
+  })
 
   /** Monte le lecteur ; renvoie le chemin réellement monté. */
   async mount(request: MountRequest, onExit?: (code: number | null) => void): Promise<string> {
     await this.unmount()
+    this.topFolders = null
 
     return IS_MAC ? this.mountMac(request) : this.mountWindows(request, onExit)
   }
@@ -137,23 +176,17 @@ export class DriveMount {
     }
   }
 
-  /** Journal de rclone borné à 10 Mo (vérifié au plus une fois par heure). */
-  private async maintainLog(): Promise<void> {
-    if (!this.logFile || Date.now() - this.logCheckedAt < LOG_CHECK_MS) return
-    this.logCheckedAt = Date.now()
-    try {
-      await trimLog(this.logFile)
-    } catch {
-      // Journal verrouillé : ce sera pour la prochaine fois.
-    }
-  }
-
   async stats(): Promise<MountStats> {
-    if (!this.rc) return { transfers: [], pendingUploads: 0, completed: 0 }
+    if (!this.rc) return NO_STATS
 
     try {
       const [core, vfs] = await Promise.all([
-        this.rcPost<{ transferring?: Transfer[]; transfers?: number }>('core/stats'),
+        this.rcPost<{
+          transferring?: Transfer[]
+          transfers?: number
+          errors?: number
+          lastError?: string
+        }>('core/stats'),
         this.rcPost<{ diskCache?: { uploadsInProgress?: number; uploadsQueued?: number } }>(
           'vfs/stats'
         )
@@ -168,34 +201,90 @@ export class DriveMount {
         })),
         pendingUploads:
           (vfs.diskCache?.uploadsInProgress ?? 0) + (vfs.diskCache?.uploadsQueued ?? 0),
-        completed: core.transfers ?? 0
+        completed: core.transfers ?? 0,
+        errors: core.errors ?? 0,
+        lastError: core.lastError || null
       }
     } catch {
-      return { transfers: [], pendingUploads: 0, completed: 0 }
+      return NO_STATS
     }
   }
 
+  /** Des envois partent ou attendent (écriture différée). */
+  async busy(): Promise<boolean> {
+    const stats = await this.stats()
+    return stats.pendingUploads > 0 || stats.transfers.length > 0
+  }
+
   /**
-   * Après un changement fait ailleurs (web, autre poste) : rclone oublie ses listes de
-   * dossiers (la prochaine lecture repart du serveur), puis l'Explorateur est prévenu,
-   * pour que son volet de navigation retire les dossiers disparus et montre les
-   * nouveaux. Renvoie les dossiers de premier niveau actuels (null si illisibles).
+   * Après un changement fait ailleurs (web, autre poste) : rclone oublie les dossiers
+   * touchés (leur prochaine lecture repart du serveur), puis l'Explorateur est prévenu,
+   * pour que son volet de navigation retire les dossiers disparus et montre les nouveaux.
+   * « Tout oublier » relit la racine et fait relire chaque dossier de premier niveau.
    * Windows seulement : le Finder relit le volume WebDAV de lui-même.
    */
-  async refreshExplorer(previous: string[] | null): Promise<string[] | null> {
+  async invalidate(plan: InvalidationPlan): Promise<void> {
     const path = this.mountedPath
-    if (!path || !IS_WIN || !this.rc) return null
+    if (!path || !IS_WIN || !this.rc) return
+    const root = mountPathForOpen(path)
 
-    try {
-      await this.rcPost('vfs/forget')
-    } catch {
-      // Port de contrôle injoignable : les listes se rafraîchiront d'elles-mêmes (30 s).
+    if (plan.all) {
+      try {
+        await this.rcPost('vfs/forget')
+      } catch {
+        // Port de contrôle injoignable : les listes se rafraîchiront d'elles-mêmes (10 min).
+      }
+      const current = await this.topLevelFolders()
+      if (current === null) return
+      this.notifier.notify(shellChangesFor(root, this.topFolders, current))
+      this.topFolders = current
+      return
     }
-    const current = await this.topLevelFolders()
-    if (current === null) return previous
 
-    await notifyShell(shellChangesFor(mountPathForOpen(path), previous, current))
-    return current
+    const dirs = [...plan.dirs]
+    const shell = [...plan.shell]
+    // La corbeille n'apparaît qu'aux administrateurs : à la racine, si on l'y a vue.
+    const trash = this.topFolders?.find((name) => name.toLowerCase() === TRASH_FOLDER.toLowerCase())
+    if (plan.trash && (this.topFolders === null || trash)) {
+      dirs.push(trash ?? TRASH_FOLDER)
+      shell.push({ event: 'updatedir', path: trash ?? TRASH_FOLDER })
+    }
+    if (dirs.length > 0) {
+      try {
+        await this.rcPost('vfs/forget', forgetParams(dirs))
+      } catch {
+        // idem : le cache des dossiers expire de lui-même.
+      }
+    }
+    this.notifier.notify(
+      shell.map(
+        (change): ShellChange => ({ event: change.event, path: windowsPath(root, change.path) })
+      )
+    )
+    this.trackTopFolders(shell)
+  }
+
+  /** Dossiers de premier niveau apparus ou disparus : la prochaine relecture complète en tient compte. */
+  private trackTopFolders(shell: InvalidationPlan['shell']): void {
+    if (!this.topFolders) return
+    for (const change of shell) {
+      if (!change.path || change.path.includes('/')) continue
+      if (change.event === 'rmdir')
+        this.topFolders = this.topFolders.filter((name) => name !== change.path)
+      else if (change.event === 'mkdir' && !this.topFolders.includes(change.path))
+        this.topFolders = [...this.topFolders, change.path]
+    }
+  }
+
+  /** Journal de rclone borné à 10 Mo (vérifié au plus une fois par heure). */
+  private async maintainLog(): Promise<void> {
+    if (!this.logFile || Date.now() - this.logCheckedAt < LOG_CHECK_MS) return
+    this.logCheckedAt = Date.now()
+    try {
+      await trimLog(this.logFile)
+    } catch {
+      // Journal verrouillé : ce sera pour la prochaine fois.
+    }
   }
 
   /** Noms des dossiers à la racine du lecteur (null si le lecteur est illisible). */
@@ -210,8 +299,12 @@ export class DriveMount {
     }
   }
 
-  /** Démonte proprement, après les envois en attente (30 s au plus). */
-  async unmount(): Promise<void> {
+  /**
+   * Démonte proprement, après les envois en attente (30 s au plus). Sans attendre quand le
+   * poste a été révoqué : ces envois échoueraient ; restés dans le cache local, ils
+   * repartent au prochain montage.
+   */
+  async unmount(waitForUploads = true): Promise<void> {
     const path = this.mountedPath
     this.mountedPath = null
 
@@ -223,7 +316,7 @@ export class DriveMount {
     const proc = this.proc
     if (!proc) return
 
-    const deadline = Date.now() + UPLOAD_FLUSH_TIMEOUT_MS
+    const deadline = waitForUploads ? Date.now() + UPLOAD_FLUSH_TIMEOUT_MS : 0
     while (this.rc && Date.now() < deadline) {
       const { pendingUploads } = await this.stats()
       if (pendingUploads === 0) break
@@ -248,6 +341,7 @@ export class DriveMount {
 
   /** À la fermeture de l'application : arrêt immédiat, sans attente. */
   killSync(): void {
+    this.notifier.dispose()
     if (this.proc && !this.proc.killed) {
       try {
         this.proc.kill()

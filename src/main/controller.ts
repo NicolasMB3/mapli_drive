@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events'
-import { clipboard, powerMonitor, shell } from 'electron'
+import { app, clipboard, net, powerMonitor, shell } from 'electron'
 import type {
   DriveSettings,
   DriveState,
@@ -9,17 +9,23 @@ import type {
 } from '../shared/types'
 import { api, type DriveStatusPayload, type EmployeeSpacePendingPayload } from './api'
 import { jittered, reconnectRetryDelay } from './backoff'
-import { WEB_URL } from './config'
+import { API_URL, WEB_URL } from './config'
 import { DriveMount } from './drive-mount'
 import { nextPrompt, promptIds, promptKey, pruneSnoozed } from './employee-space'
 import { ApiError, NetworkError } from './errors'
+import { LiveSync } from './live-sync'
 import { PairingFlow } from './pairing'
 import { mountPathForOpen } from './platform'
+import { RealtimeClient } from './realtime'
+import { openRealtimeSocket } from './realtime-socket'
 import {
   clearDevice,
+  clearRealtimeEndpoint,
   loadDevice,
+  loadRealtimeEndpoint,
   loadSettings,
   saveDevice,
+  saveRealtimeEndpoint,
   saveSettings,
   updateDeviceContext,
   type Device
@@ -31,17 +37,16 @@ import { frenchOr, toUserMessage, type ErrorContext } from './user-message'
 /*
  * Le cœur de Mapli Drive : relie le poste (appairage), monte le lecteur, le garde en
  * vie (reconnexion après une coupure, une mise en veille, un plantage de rclone) et
- * tient la fenêtre et l'icône à jour (état, espace, envois, fichiers récents).
+ * tient la fenêtre et l'icône à jour (état, espace, envois, fichiers récents). Les
+ * changements faits ailleurs arrivent par la connexion temps réel (live-sync.ts).
  */
 
-const STATUS_REFRESH_MS = 5 * 60_000
-const RECENT_REFRESH_MS = 60_000
-/** Révision du coffre : de quoi voir un changement fait ailleurs en moins de 20 s. */
-const REVISION_POLL_MS = 20_000
 /** Santé du lecteur (port de contrôle de rclone), toutes les 30 s environ. */
 const HEALTH_CHECK_MS = 30_000
 /** Échecs consécutifs avant de remonter le lecteur. */
 const HEALTH_FAILURES = 2
+/** rclone a reçu un 401 : le token est vérifié, au plus une fois par minute. */
+const TOKEN_CHECK_MS = 60_000
 
 export class DriveController extends EventEmitter {
   private readonly mount = new DriveMount()
@@ -49,16 +54,14 @@ export class DriveController extends EventEmitter {
   private settings: DriveSettings = loadSettings()
   private retryCount = 0
   private retryTimer: NodeJS.Timeout | null = null
-  private timers: NodeJS.Timeout[] = []
   private healthTimer: NodeJS.Timeout | null = null
   private healthFailures = 0
   private statsTimer: NodeJS.Timeout | null = null
   private connecting = false
   private windowVisible = false
-  /** Dernière révision du coffre vue, et dossiers de premier niveau du lecteur à ce moment-là. */
-  private revision: string | null = null
-  private topFolders: string[] | null = null
-  private checkingRevision = false
+  /** Erreurs de rclone au dernier relevé, et dernière vérification du token. */
+  private rcloneErrors = 0
+  private tokenCheckedAt = 0
   /** Espace salariés : proposé tant que la personne le gère (sinon, jusqu'à la prochaine connexion, plus rien). */
   private spaceAvailable = true
   private refreshingSpace = false
@@ -77,6 +80,42 @@ export class DriveController extends EventEmitter {
     onApproved: (result) => void this.onPaired(result),
     onError: (message) => this.update({ error: message })
   })
+
+  /** Changements faits ailleurs : temps réel, interrogation de secours sinon. */
+  private readonly live = new LiveSync(
+    {
+      fetchRevision: () => this.withToken((token) => api.driveRevision(token)),
+      refreshStatus: async () => this.applyStatus(await this.withToken(api.driveStatus)),
+      fetchFolders: (etag) => this.withToken((token) => api.driveFolders(token, etag)),
+      invalidate: (plan) => this.mount.invalidate(plan),
+      busy: () => this.mount.busy(),
+      windowVisible: () => this.windowVisible,
+      refreshRecent: () => void this.refreshRecent(),
+      refreshPending: () => void this.refreshEmployeeSpace(),
+      revoked: () => this.onRevoked(),
+      online: () => net.isOnline()
+    },
+    {
+      createRealtime: () =>
+        new RealtimeClient({
+          version: app.getVersion(),
+          authorize: (socketId) => this.withToken((token) => api.realtimeAuth(token, socketId)),
+          open: (url, handlers) =>
+            openRealtimeSocket(url, handlers, {
+              userAgent: `MapliDrive/${app.getVersion()}`,
+              origin: WEB_URL
+            }),
+          loadEndpoint: loadRealtimeEndpoint,
+          saveEndpoint: saveRealtimeEndpoint,
+          clearEndpoint: clearRealtimeEndpoint,
+          allowInsecure: API_URL.startsWith('http://'),
+          online: () => net.isOnline(),
+          log: (message) => console.info(`[Mapli Drive] ${message}`)
+        }),
+      isLocked: () => powerMonitor.getSystemIdleState(60) === 'locked',
+      log: (message) => console.info(`[Mapli Drive] ${message}`)
+    }
+  )
 
   state: DriveState = {
     phase: 'unpaired',
@@ -99,11 +138,15 @@ export class DriveController extends EventEmitter {
     // rclone resté d'une session interrompue : arrêté avant le montage, sans bloquer.
     await DriveMount.cleanupOrphans()
 
-    powerMonitor.on('resume', () => setTimeout(() => void this.reconnectIfNeeded(), 3_000))
+    // Veille et écran verrouillé : plus rien ne part ; au retour, reconnexion étalée.
+    powerMonitor.on('suspend', () => this.live.setSuspended(true))
+    powerMonitor.on('resume', () => {
+      this.live.setSuspended(false)
+      setTimeout(() => void this.reconnectIfNeeded(), 3_000)
+    })
+    powerMonitor.on('lock-screen', () => this.live.setLocked(true))
+    powerMonitor.on('unlock-screen', () => this.live.setLocked(false))
     this.scheduleHealth()
-    this.timers.push(setInterval(() => void this.refreshStatus(), STATUS_REFRESH_MS))
-    this.timers.push(setInterval(() => void this.refreshRecent(), RECENT_REFRESH_MS))
-    this.timers.push(setInterval(() => void this.checkRevision(), REVISION_POLL_MS))
 
     this.device = loadDevice()
     if (!this.device) {
@@ -119,7 +162,7 @@ export class DriveController extends EventEmitter {
   setWindowVisible(visible: boolean): void {
     this.windowVisible = visible
     this.scheduleStats()
-    if (visible) void this.refreshRecent()
+    if (visible) this.live.windowShown()
   }
 
   // ── Appairage ───────────────────────────────────────────
@@ -172,6 +215,7 @@ export class DriveController extends EventEmitter {
     if (!this.device || this.connecting) return
     this.connecting = true
     this.clearRetry()
+    this.live.stop()
     this.update({ phase: 'connecting', error: null })
 
     try {
@@ -199,12 +243,13 @@ export class DriveController extends EventEmitter {
 
       this.retryCount = 0
       this.healthFailures = 0
+      this.rcloneErrors = 0
       this.update({ phase: 'connected', mounted: true, mountPoint: path })
-      // Nouveau montage : la première révision lue relit aussi l'arborescence de l'Explorateur.
-      this.revision = null
-      this.topFolders = null
+      // Nouveau montage : la synchronisation repart (la première révision lue relit aussi
+      // l'arborescence de l'Explorateur).
+      this.live.start()
       this.scheduleStats()
-      void this.refreshRecent()
+      if (this.windowVisible) void this.refreshRecent()
       this.spaceAvailable = true
       void this.refreshEmployeeSpace()
     } catch (error) {
@@ -216,6 +261,7 @@ export class DriveController extends EventEmitter {
 
   async pause(): Promise<void> {
     this.clearRetry()
+    this.live.stop()
     await this.mount.unmount()
     this.update({ phase: 'paused', mounted: false, transfers: [], pendingUploads: 0 })
   }
@@ -227,6 +273,7 @@ export class DriveController extends EventEmitter {
   /** Déconnecter ce poste : le token est révoqué côté Mapli et oublié ici. */
   async unpair(): Promise<void> {
     this.clearRetry()
+    this.live.stop()
     const token = this.device?.token
     await this.mount.unmount()
     if (token) {
@@ -332,7 +379,7 @@ export class DriveController extends EventEmitter {
   private async refreshEmployeeSpace(): Promise<void> {
     if (!this.device || this.state.phase !== 'connected' || !this.spaceAvailable) return
     // Une lecture part déjà, peut-être d'avant la fin de l'envoi : on relira juste après,
-    // sans quoi le dépôt qui vient d'arriver attendrait le prochain passage (20 s).
+    // sans quoi le dépôt qui vient d'arriver attendrait le prochain signal.
     if (this.refreshingSpace) {
       this.refreshSpaceAgain = true
       return
@@ -346,6 +393,8 @@ export class DriveController extends EventEmitter {
         this.spaceAvailable = false
         this.update({ employeeSpace: null, prompt: null })
         this.emit('prompt-done')
+      } else if (error instanceof ApiError && error.status === 401) {
+        this.onRevoked()
       }
     } finally {
       this.refreshingSpace = false
@@ -397,6 +446,7 @@ export class DriveController extends EventEmitter {
       (previous.mountPoint !== this.settings.mountPoint ||
         previous.cacheSizeGb !== this.settings.cacheSizeGb)
     if (remount) {
+      this.live.stop()
       await this.mount.unmount()
       await this.connect()
     }
@@ -406,7 +456,7 @@ export class DriveController extends EventEmitter {
 
   /** Fermeture de l'application : démontage propre (envois terminés). */
   async shutdown(): Promise<void> {
-    this.timers.forEach(clearInterval)
+    this.live.stop()
     if (this.healthTimer) clearTimeout(this.healthTimer)
     this.clearRetry()
     if (this.statsTimer) clearTimeout(this.statsTimer)
@@ -419,6 +469,12 @@ export class DriveController extends EventEmitter {
   }
 
   // ── Interne ─────────────────────────────────────────────
+
+  /** Appel de l'API avec le token du poste (rejeté si le poste n'est plus relié). */
+  private withToken<T>(call: (token: string) => Promise<T>): Promise<T> {
+    const token = this.device?.token
+    return token ? call(token) : Promise.reject(new Error('poste non relié'))
+  }
 
   private applyStatus(status: DriveStatusPayload): void {
     const context = { organization: status.organization, user: status.user }
@@ -438,9 +494,7 @@ export class DriveController extends EventEmitter {
 
   private handleConnectError(error: unknown): void {
     if (error instanceof ApiError && error.status === 401) {
-      // Token révoqué (Appareils connectés) ou expiré : le poste doit être relié à nouveau.
-      void this.mount.unmount()
-      this.forgetDevice('Ce poste a été déconnecté de Mapli. Reliez-le pour retrouver le lecteur.')
+      this.onRevoked()
       return
     }
 
@@ -458,7 +512,21 @@ export class DriveController extends EventEmitter {
     this.scheduleRetry(error)
   }
 
+  /**
+   * Token révoqué (Appareils connectés : annoncé en temps réel, ou un 401) ou expiré : le
+   * lecteur est démonté sans attendre — rclone réessaierait en vain — et le poste doit
+   * être relié à nouveau.
+   */
+  private onRevoked(): void {
+    if (!this.device) return
+    this.clearRetry()
+    this.live.stop()
+    void this.mount.unmount(false)
+    this.forgetDevice('Ce poste a été déconnecté de Mapli. Reliez-le pour retrouver le lecteur.')
+  }
+
   private forgetDevice(notice: string | null): void {
+    this.live.stop()
     clearDevice()
     this.device = null
     this.update({
@@ -482,6 +550,7 @@ export class DriveController extends EventEmitter {
   private onMountExit(code: number | null): void {
     // Arrêt inattendu de rclone : on remonte (avec temporisation).
     if (this.state.phase === 'connected') {
+      this.live.stop()
       this.update({
         phase: 'offline',
         mounted: false,
@@ -505,6 +574,7 @@ export class DriveController extends EventEmitter {
       this.healthFailures = healthy ? 0 : this.healthFailures + 1
       if (this.healthFailures >= HEALTH_FAILURES) {
         this.healthFailures = 0
+        this.live.stop()
         this.update({ phase: 'offline', mounted: false })
         this.scheduleRetry()
       }
@@ -551,7 +621,7 @@ export class DriveController extends EventEmitter {
         const previous = this.uploadSnapshot()
         this.completedTransfers = stats.completed
         // Rien ne part ni n'attend, comme au relevé précédent : l'état ne change pas (pas de
-        // quoi redessiner l'icône et son menu toutes les 2,5 s).
+        // quoi redessiner l'icône et son menu à chaque relevé).
         const unchanged =
           stats.pendingUploads === this.state.pendingUploads &&
           stats.transfers.length === 0 &&
@@ -560,13 +630,21 @@ export class DriveController extends EventEmitter {
           this.update({ transfers: stats.transfers, pendingUploads: stats.pendingUploads })
         }
         if (uploadsSettled(previous, this.uploadSnapshot())) {
-          void this.refreshRecent()
+          this.live.uploadsSettled()
+          if (this.windowVisible) void this.refreshRecent()
           // Un fichier vient d'arriver dans le dossier d'un salarié ? La fenêtre le propose.
           void this.refreshEmployeeSpace()
         }
+        // rclone essuie des refus (401) : le poste a peut-être été révoqué.
+        if (
+          stats.errors > this.rcloneErrors &&
+          /\b401\b|unauthori[sz]ed/i.test(stats.lastError ?? '')
+        )
+          void this.verifyToken()
+        this.rcloneErrors = stats.errors
         this.scheduleStats()
       },
-      statsDelay(this.windowVisible, this.uploadSnapshot())
+      statsDelay(this.windowVisible, this.uploadSnapshot(), this.live.isPushing)
     )
   }
 
@@ -578,39 +656,14 @@ export class DriveController extends EventEmitter {
     }
   }
 
-  private async refreshStatus(): Promise<void> {
-    if (!this.device || this.state.phase !== 'connected') return
+  /** Le token est-il toujours valable ? (401 : le poste est déconnecté.) */
+  private async verifyToken(): Promise<void> {
+    if (!this.device || Date.now() - this.tokenCheckedAt < TOKEN_CHECK_MS) return
+    this.tokenCheckedAt = Date.now()
     try {
-      this.applyStatus(await api.driveStatus(this.device.token))
+      await api.driveRevision(this.device.token)
     } catch (error) {
-      if (error instanceof ApiError && error.status === 401) this.handleConnectError(error)
-    }
-  }
-
-  /**
-   * Le coffre a-t-il changé ailleurs (web, autre poste, partage) ? Si oui, et qu'aucun
-   * envoi n'est en cours, le lecteur relit le serveur et l'Explorateur son arborescence
-   * — sans quoi un dossier supprimé sur le web y reste affiché.
-   */
-  private async checkRevision(): Promise<void> {
-    if (!this.device || this.state.phase !== 'connected' || this.checkingRevision) return
-    this.checkingRevision = true
-    try {
-      const revision = await api.driveRevision(this.device.token)
-      if (revision === this.revision) return
-      // Des envois partent : on attend qu'ils soient finis (le prochain passage rafraîchira).
-      if (this.state.pendingUploads > 0 || this.state.transfers.length > 0) return
-
-      const first = this.revision === null
-      this.revision = revision
-      this.topFolders = await this.mount.refreshExplorer(first ? null : this.topFolders)
-      if (!first) void this.refreshRecent()
-      // Dépôt dans le dossier d'un salarié, dossier créé dans « Espace salariés », validation faite ailleurs.
-      void this.refreshEmployeeSpace()
-    } catch {
-      // Hors ligne ou token révoqué : la surveillance de la connexion s'en occupe.
-    } finally {
-      this.checkingRevision = false
+      if (error instanceof ApiError && error.status === 401) this.onRevoked()
     }
   }
 
@@ -618,8 +671,9 @@ export class DriveController extends EventEmitter {
     if (!this.device || this.state.phase !== 'connected') return
     try {
       this.update({ recent: await api.recent(this.device.token) })
-    } catch {
+    } catch (error) {
       // Liste indicative : une erreur passagère ne change rien.
+      if (error instanceof ApiError && error.status === 401) this.onRevoked()
     }
   }
 

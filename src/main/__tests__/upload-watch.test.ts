@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { rcloneMountArgs, type MountOptions } from '../rclone-args'
-import { STATS_ACTIVE_MS, STATS_IDLE_MS, statsDelay, uploadsSettled } from '../upload-watch'
+import {
+  STATS_ACTIVE_MS,
+  STATS_IDLE_MS,
+  STATS_IDLE_PUSH_MS,
+  statsDelay,
+  uploadsSettled
+} from '../upload-watch'
 
 const idle = { transfers: 0, pendingUploads: 0, completed: 4 }
 
@@ -12,7 +18,15 @@ describe('suivi des envois', () => {
     expect(statsDelay(false, { ...idle, transfers: 1 })).toBe(STATS_ACTIVE_MS)
   })
 
-  it('never lets a dropped file wait unseen: idle checks are shorter than the write-back delay', () => {
+  it('spaces idle checks out while the server pushes changes (it announces deposits itself)', () => {
+    expect(statsDelay(false, idle, true)).toBe(STATS_IDLE_PUSH_MS)
+    expect(statsDelay(true, idle, true)).toBe(STATS_ACTIVE_MS)
+    expect(statsDelay(false, { ...idle, pendingUploads: 1 }, true)).toBe(STATS_ACTIVE_MS)
+    // Un envoi fini entre deux relevés espacés reste vu, grâce au compteur cumulé.
+    expect(uploadsSettled(idle, { ...idle, completed: 6 })).toBe(true)
+  })
+
+  it('never lets a dropped file wait unseen without push: idle checks are shorter than the write-back delay', () => {
     const args = rcloneMountArgs({ mountPoint: 'M:', cacheSizeGb: 10 } as MountOptions)
     const writeBack = args[args.indexOf('--vfs-write-back') + 1]
     expect(writeBack).toMatch(/^\d+s$/)

@@ -26,6 +26,11 @@ export function getTrayIconPath(variant?: 'ok' | 'busy' | 'error'): string {
   return resource(variant ? `tray-${variant}.png` : 'tray-icon.png')
 }
 
+/** Assistant de notification de l'Explorateur (script PowerShell livré avec l'application). */
+export function getShellHelperPath(): string {
+  return resource('explorer-notify.ps1')
+}
+
 /** Outil de Windows par son chemin complet (jamais cherché dans le PATH ni le dossier courant). */
 export function systemTool(relative: string): string {
   return join(process.env.SystemRoot || 'C:\\Windows', 'System32', relative)

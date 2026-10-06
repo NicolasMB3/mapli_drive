@@ -5,6 +5,8 @@ import type {
   EmployeeSpaceSeats,
   NewEmployeeInput
 } from '../shared/types'
+import { parseFolders, parseRealtimeAuth, parseRevision, type FoldersResult } from './api-payloads'
+import { parseRetryAfter } from './backoff'
 import { API_URL } from './config'
 import { ApiError, NetworkError } from './errors'
 import { OFFLINE_MESSAGE } from './user-message'
@@ -18,26 +20,30 @@ import { OFFLINE_MESSAGE } from './user-message'
 
 const TIMEOUT_MS = 20_000
 
-async function request<T>(
-  method: string,
-  path: string,
-  options: { token?: string; body?: unknown } = {}
-): Promise<T> {
+interface RequestOptions {
+  token?: string
+  body?: unknown
+  /** Requête conditionnelle (If-None-Match), hors du cache HTTP de Chromium. */
+  etag?: string | null
+}
+
+async function send(method: string, path: string, options: RequestOptions): Promise<Response> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
 
-  let response: Response
   try {
-    response = await net.fetch(`${API_URL}${path}`, {
+    return await net.fetch(`${API_URL}${path}`, {
       method,
       signal: controller.signal,
+      ...(options.etag !== undefined ? { cache: 'no-store' as const } : {}),
       headers: {
         Accept: 'application/json',
         // Mapli Drive ne parle que français, quelle que soit la langue du système.
         'Accept-Language': 'fr-FR,fr;q=0.9',
         'Content-Type': 'application/json',
         'User-Agent': `MapliDrive/${app.getVersion()}`,
-        ...(options.token ? { Authorization: `Bearer ${options.token}` } : {})
+        ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
+        ...(options.etag ? { 'If-None-Match': options.etag } : {})
       },
       body: options.body !== undefined ? JSON.stringify(options.body) : undefined
     })
@@ -46,13 +52,20 @@ async function request<T>(
   } finally {
     clearTimeout(timer)
   }
+}
 
+/** Erreur HTTP, avec l'attente demandée par le serveur (Retry-After) s'il y en a une. */
+function httpError(payload: { message?: unknown }, response: Response): ApiError {
+  const message = typeof payload.message === 'string' ? payload.message : null
+  const error = new ApiError(response.status, message)
+  const retryAfterMs = parseRetryAfter(response.headers.get('retry-after'))
+  return retryAfterMs === null ? error : Object.assign(error, { retryAfterMs })
+}
+
+async function request<T>(method: string, path: string, options: RequestOptions = {}): Promise<T> {
+  const response = await send(method, path, options)
   const payload = (await response.json().catch(() => ({}))) as { message?: unknown } & T
-  if (!response.ok) {
-    const message = typeof payload.message === 'string' ? payload.message : null
-    throw new ApiError(response.status, message)
-  }
-
+  if (!response.ok) throw httpError(payload, response)
   return payload
 }
 
@@ -127,9 +140,27 @@ export const api = {
 
   /** Empreinte du coffre : change dès que son contenu ou ses accès changent. */
   driveRevision: (token: string) =>
-    request<{ data: { revision: string } }>('GET', '/desktop/app/drive/revision', { token }).then(
-      (r) => r.data.revision
-    ),
+    request<unknown>('GET', '/desktop/app/drive/revision', { token }).then(parseRevision),
+
+  /** Table des dossiers visibles (identifiant → chemin), avec ETag : 304 si rien n'a changé. */
+  driveFolders: async (token: string, etag: string | null): Promise<FoldersResult> => {
+    const response = await send('GET', '/desktop/app/drive/folders', { token, etag })
+    if (response.status === 304) return { notModified: true }
+    const payload = (await response.json().catch(() => ({}))) as { message?: unknown }
+    if (!response.ok) throw httpError(payload, response)
+    return {
+      notModified: false,
+      folders: parseFolders(payload),
+      etag: response.headers.get('etag')
+    }
+  },
+
+  /** Signatures des canaux temps réel pour cette connexion (et le point d'accès Reverb). */
+  realtimeAuth: (token: string, socketId: string) =>
+    request<unknown>('POST', '/desktop/app/realtime/auth', {
+      token,
+      body: { socket_id: socketId }
+    }).then(parseRealtimeAuth),
 
   recent: (token: string) =>
     request<{ data: RecentFilePayload[] }>('GET', '/desktop/app/drive/recent', { token }).then(

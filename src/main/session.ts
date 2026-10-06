@@ -3,6 +3,7 @@ import { safeStorage } from 'electron'
 import type { DeviceInfo, DriveSettings } from '../shared/types'
 import { UserFacingError } from './errors'
 import { defaultMountPoint } from './platform'
+import { endpointFrom, type RealtimeEndpoint } from './realtime'
 
 /*
  * Ce que le poste garde entre deux lancements : le token d'appareil (chiffré par le
@@ -19,6 +20,8 @@ interface Schema {
   device?: StoredDevice
   settings?: Partial<DriveSettings>
   launched?: boolean
+  /** Point d'accès temps réel (clé publique Reverb, hôte) : rien de secret. */
+  realtime?: RealtimeEndpoint
   /** Le PID de rclone est noté à chaque montage (nettoyage au démarrage). */
   pidTracking?: boolean
 }
@@ -96,8 +99,20 @@ function quietly(write: () => void): void {
   try {
     write()
   } catch {
-    // Refait au prochain démarrage.
+    // Redemandé (point d'accès) ou refait (nettoyage) au prochain démarrage.
   }
+}
+
+export function loadRealtimeEndpoint(): RealtimeEndpoint | null {
+  return endpointFrom(store.get('realtime'))
+}
+
+export function saveRealtimeEndpoint(endpoint: RealtimeEndpoint): void {
+  quietly(() => store.set('realtime', endpoint))
+}
+
+export function clearRealtimeEndpoint(): void {
+  quietly(() => store.delete('realtime'))
 }
 
 /** Aucun PID de rclone n'a encore été noté (première version qui le fait) ? */
