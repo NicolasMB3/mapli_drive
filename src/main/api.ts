@@ -1,4 +1,10 @@
 import { app, net } from 'electron'
+import type {
+  EmployeeSpaceGroup,
+  EmployeeSpaceNewFolder,
+  EmployeeSpaceSeats,
+  NewEmployeeInput
+} from '../shared/types'
 import { API_URL } from './config'
 
 /*
@@ -98,6 +104,16 @@ export interface RecentFilePayload {
   created_at: string
 }
 
+/** Espace salariés : ce que la personne a déposé ou créé, et qui attend sa décision. */
+export interface EmployeeSpacePendingPayload {
+  data: EmployeeSpaceGroup[]
+  total: number
+  new_folders: EmployeeSpaceNewFolder[]
+  seats: EmployeeSpaceSeats
+}
+
+const spacePath = (path: string): string => `/desktop/app/employee-space${path}`
+
 export const api = {
   startPairing: (deviceName: string, platform: string) =>
     request<{ data: PairingStart }>('POST', '/desktop/pairing/start', {
@@ -126,5 +142,29 @@ export const api = {
     ),
 
   disconnect: (token: string) =>
-    request<{ message: string }>('DELETE', '/desktop/app/session', { token })
+    request<{ message: string }>('DELETE', '/desktop/app/session', { token }),
+
+  employeeSpacePending: (token: string) =>
+    request<EmployeeSpacePendingPayload>('GET', spacePath('/pending'), { token }),
+
+  employeeSpacePublish: (token: string, requestIds: string[], notify: boolean) =>
+    request<{ message: string }>('POST', spacePath('/publish'), {
+      token,
+      body: { request_ids: requestIds, notify }
+    }),
+
+  employeeSpaceDiscard: (token: string, requestIds: string[]) =>
+    request<{ message: string }>('POST', spacePath('/discard'), {
+      token,
+      body: { request_ids: requestIds }
+    }),
+
+  employeeSpaceCreateEmployee: (token: string, folderId: string, input: NewEmployeeInput) =>
+    request<{ message: string }>('POST', spacePath(`/folders/${folderId}/employee`), {
+      token,
+      body: input
+    }),
+
+  employeeSpaceKeepFolder: (token: string, folderId: string) =>
+    request<{ message: string }>('POST', spacePath(`/folders/${folderId}/dismiss`), { token })
 }

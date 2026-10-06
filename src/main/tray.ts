@@ -1,6 +1,7 @@
 import { Menu, Tray, app, nativeImage } from 'electron'
 import type { DriveState } from '../shared/types'
 import { PRODUCT_NAME } from './config'
+import { pendingCount } from './employee-space'
 import { getTrayIconPath, IS_MAC } from './platform'
 import type { DriveController } from './controller'
 
@@ -21,7 +22,11 @@ const VARIANT: Record<string, 'ok' | 'busy' | 'error' | null> = {
   unpaired: null
 }
 
-export function createTray(controller: DriveController, showWindow: () => void): Tray {
+export function createTray(
+  controller: DriveController,
+  showWindow: () => void,
+  showEmployeeSpace: () => void
+): Tray {
   const base = nativeImage.createFromPath(getTrayIconPath())
   const icons = new Map<string, Electron.NativeImage>()
   const iconFor = (phase: string): Electron.NativeImage => {
@@ -59,6 +64,8 @@ export function createTray(controller: DriveController, showWindow: () => void):
   const refresh = (state: DriveState): void => {
     tray.setImage(iconFor(state.phase))
     tray.setToolTip(`${PRODUCT_NAME} — ${label(state)}`)
+    // Espace salariés : ce qui attend une décision (documents à publier, dossiers à compléter).
+    const waiting = pendingCount(state.employeeSpace)
 
     tray.setContextMenu(
       Menu.buildFromTemplate([
@@ -70,6 +77,12 @@ export function createTray(controller: DriveController, showWindow: () => void):
         },
         { label: label(state), enabled: false },
         { type: 'separator' },
+        ...(waiting > 0
+          ? [
+              { label: `Espace salariés · ${waiting} à valider`, click: showEmployeeSpace },
+              { type: 'separator' as const }
+            ]
+          : []),
         ...(state.phase === 'connected'
           ? [
               {

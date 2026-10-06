@@ -1,11 +1,80 @@
 import type { MapliApi } from '@shared/bridge'
-import type { DriveSettings, DriveState } from '@shared/types'
+import type {
+  DriveSettings,
+  DriveState,
+  EmployeeSpaceGroup,
+  EmployeeSpaceNewFolder
+} from '@shared/types'
 
 /*
  * Accès au processus principal. Hors Electron (aperçu de l'interface dans un navigateur,
  * pour la mise au point), une maquette simule les états : ?etat=appairage, expire,
- * connecte, vide, plein, envoi, pause, hors-ligne, erreur, deconnecte, nouveau.
+ * connecte, vide, plein, envoi, pause, hors-ligne, erreur, deconnecte, nouveau — et, pour
+ * la petite fenêtre de l'espace salariés (adresse terminée par #popup) : popup-publier,
+ * popup-dossier, popup-complet.
  */
+
+const SPACE_GROUP: EmployeeSpaceGroup = {
+  employee: {
+    id: 'e1',
+    name: 'Jean Dupont',
+    email: 'jean.dupont@maison-verdier.fr',
+    status: 'active'
+  },
+  category: { id: 'c1', name: 'Documents', slug: 'documents' },
+  folder_id: 'f1',
+  web_url: 'https://app.mapli.fr/documents?folder=f1',
+  requests: [
+    {
+      id: 'r1',
+      document_id: 'd1',
+      name: 'Avenant 2026.pdf',
+      size_bytes: 182_000,
+      created_at: new Date().toISOString()
+    },
+    {
+      id: 'r2',
+      document_id: 'd2',
+      name: 'Fiche de poste.pdf',
+      size_bytes: 94_000,
+      created_at: new Date().toISOString()
+    }
+  ],
+  requested_at: new Date().toISOString()
+}
+
+const SPACE_FOLDER: EmployeeSpaceNewFolder = {
+  id: 'f2',
+  name: 'Nicolas BAAR',
+  suggested: { first_name: 'Nicolas', last_name: 'BAAR' },
+  created_at: new Date().toISOString(),
+  web_url: 'https://app.mapli.fr/documents?folder=f2'
+}
+
+function mockSpace(scenario: string): Pick<DriveState, 'employeeSpace' | 'prompt'> {
+  const seats = { used: 12, limit: 40, remaining: 28, can_create: true }
+  switch (scenario) {
+    case 'popup-publier':
+      return {
+        employeeSpace: { groups: [SPACE_GROUP], newFolders: [], seats },
+        prompt: { kind: 'publish', group: SPACE_GROUP }
+      }
+    case 'popup-dossier':
+      return {
+        employeeSpace: { groups: [], newFolders: [SPACE_FOLDER], seats },
+        prompt: { kind: 'folder', folder: SPACE_FOLDER, seats }
+      }
+    case 'popup-complet': {
+      const full = { used: 40, limit: 40, remaining: 0, can_create: false }
+      return {
+        employeeSpace: { groups: [], newFolders: [SPACE_FOLDER], seats: full },
+        prompt: { kind: 'folder', folder: SPACE_FOLDER, seats: full }
+      }
+    }
+    default:
+      return { employeeSpace: null, prompt: null }
+  }
+}
 
 function mockState(): DriveState {
   const scenario = new URLSearchParams(window.location.search).get('etat') ?? 'connecte'
@@ -96,7 +165,8 @@ function mockState(): DriveState {
       }
     ],
     error: null,
-    notice: null
+    notice: null,
+    ...mockSpace(scenario)
   }
 
   switch (scenario) {
@@ -226,6 +296,38 @@ function createMock(): MapliApi {
       resume: async () => set({ phase: 'connected', mounted: true, error: null }),
       unpair: async () => set({ phase: 'unpaired', device: null, mounted: false }),
       dismissNotice: async () => set({ notice: null })
+    },
+    space: {
+      publish: async (_ids, notify) => {
+        set({ prompt: null })
+        return {
+          ok: true,
+          message: notify
+            ? '2 documents publiés dans l’espace de Jean Dupont, prévenu par e-mail.'
+            : '2 documents publiés dans l’espace de Jean Dupont.'
+        }
+      },
+      discard: async () => {
+        set({ prompt: null })
+        return {
+          ok: true,
+          message: '2 documents ne seront pas publiés : ils restent classés dans le coffre.'
+        }
+      },
+      createEmployee: async (_folderId, input) => {
+        set({ prompt: null })
+        return {
+          ok: true,
+          message: `Accès créé — un lien d'activation a été envoyé à ${input.email}.`
+        }
+      },
+      keepFolder: async () => {
+        set({ prompt: null })
+        return { ok: true, message: '« Nicolas BAAR » reste un simple dossier.' }
+      },
+      later: async () => set({ prompt: null }),
+      openWeb: noop,
+      resize: () => {}
     },
     settings: {
       get: async () => settings,

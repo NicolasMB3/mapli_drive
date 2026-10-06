@@ -4,10 +4,18 @@ import { Titlebar } from './components/Titlebar'
 import { PairingScreen } from './components/PairingScreen'
 import { DriveScreen } from './components/DriveScreen'
 import { SettingsScreen } from './components/SettingsScreen'
+import { EmployeeSpacePopup } from './components/EmployeeSpacePopup'
 import { mapli } from './lib/bridge'
 
-/** Fenêtre de Mapli Drive : appairage tant que le poste n'est pas relié, sinon le lecteur (ou ses réglages). */
+/**
+ * Fenêtres de Mapli Drive : la fenêtre principale (appairage tant que le poste n'est pas
+ * relié, sinon le lecteur ou ses réglages), et la petite fenêtre de l'espace salariés (#popup).
+ */
 export default function App() {
+  return window.location.hash === '#popup' ? <EmployeeSpacePopup /> : <MainWindow />
+}
+
+function MainWindow() {
   const [state, setState] = useState<DriveState | null>(null)
   const [info, setInfo] = useState<AppInfo | null>(null)
   const [view, setView] = useState<'drive' | 'settings'>('drive')

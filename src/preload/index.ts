@@ -1,5 +1,12 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
-import type { AppInfo, DriveSettings, DriveState, UpdateStatus } from '../shared/types'
+import type {
+  AppInfo,
+  DriveSettings,
+  DriveState,
+  NewEmployeeInput,
+  SpaceResult,
+  UpdateStatus
+} from '../shared/types'
 import type { MapliApi } from '../shared/bridge'
 import {
   IPC_APP_INFO,
@@ -14,9 +21,16 @@ import {
   IPC_DRIVE_STATE,
   IPC_DRIVE_STATE_CHANGED,
   IPC_DRIVE_UNPAIR,
+  IPC_POPUP_RESIZE,
   IPC_SETTINGS_GET,
   IPC_SETTINGS_MOUNT_POINTS,
   IPC_SETTINGS_SET,
+  IPC_SPACE_CREATE_EMPLOYEE,
+  IPC_SPACE_DISCARD,
+  IPC_SPACE_KEEP_FOLDER,
+  IPC_SPACE_LATER,
+  IPC_SPACE_OPEN_WEB,
+  IPC_SPACE_PUBLISH,
   IPC_UPDATER_CHECK,
   IPC_UPDATER_INSTALL,
   IPC_UPDATER_STATUS,
@@ -55,6 +69,19 @@ const api: MapliApi = {
     resume: (): Promise<void> => ipcRenderer.invoke(IPC_DRIVE_RESUME),
     unpair: (): Promise<void> => ipcRenderer.invoke(IPC_DRIVE_UNPAIR),
     dismissNotice: (): Promise<void> => ipcRenderer.invoke(IPC_DRIVE_DISMISS_NOTICE)
+  },
+  space: {
+    publish: (requestIds: string[], notify: boolean): Promise<SpaceResult> =>
+      ipcRenderer.invoke(IPC_SPACE_PUBLISH, requestIds, notify),
+    discard: (requestIds: string[]): Promise<SpaceResult> =>
+      ipcRenderer.invoke(IPC_SPACE_DISCARD, requestIds),
+    createEmployee: (folderId: string, input: NewEmployeeInput): Promise<SpaceResult> =>
+      ipcRenderer.invoke(IPC_SPACE_CREATE_EMPLOYEE, folderId, input),
+    keepFolder: (folderId: string): Promise<SpaceResult> =>
+      ipcRenderer.invoke(IPC_SPACE_KEEP_FOLDER, folderId),
+    later: (): Promise<void> => ipcRenderer.invoke(IPC_SPACE_LATER),
+    openWeb: (url: string): Promise<void> => ipcRenderer.invoke(IPC_SPACE_OPEN_WEB, url),
+    resize: (height: number) => ipcRenderer.send(IPC_POPUP_RESIZE, height)
   },
   settings: {
     get: (): Promise<DriveSettings> => ipcRenderer.invoke(IPC_SETTINGS_GET),

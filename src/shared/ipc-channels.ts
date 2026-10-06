@@ -18,6 +18,15 @@ export const IPC_DRIVE_RESUME = 'drive:resume'
 export const IPC_DRIVE_UNPAIR = 'drive:unpair'
 export const IPC_DRIVE_DISMISS_NOTICE = 'drive:dismissNotice'
 
+// Espace salariés (petite fenêtre en bas à droite)
+export const IPC_SPACE_PUBLISH = 'space:publish'
+export const IPC_SPACE_DISCARD = 'space:discard'
+export const IPC_SPACE_CREATE_EMPLOYEE = 'space:createEmployee'
+export const IPC_SPACE_KEEP_FOLDER = 'space:keepFolder'
+export const IPC_SPACE_LATER = 'space:later'
+export const IPC_SPACE_OPEN_WEB = 'space:openWeb'
+export const IPC_POPUP_RESIZE = 'popup:resize'
+
 // Réglages
 export const IPC_SETTINGS_GET = 'settings:get'
 export const IPC_SETTINGS_SET = 'settings:set'

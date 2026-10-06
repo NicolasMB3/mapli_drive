@@ -1,4 +1,11 @@
-import type { AppInfo, DriveSettings, DriveState, UpdateStatus } from './types'
+import type {
+  AppInfo,
+  DriveSettings,
+  DriveState,
+  NewEmployeeInput,
+  SpaceResult,
+  UpdateStatus
+} from './types'
 
 /** Ce que la fenêtre peut demander au processus principal (exposé par le preload sous `window.mapli`). */
 export interface MapliApi {
@@ -20,6 +27,19 @@ export interface MapliApi {
     resume: () => Promise<void>
     unpair: () => Promise<void>
     dismissNotice: () => Promise<void>
+  }
+  /** Espace salariés : la petite fenêtre (publier, créer l'espace d'une personne). */
+  space: {
+    publish: (requestIds: string[], notify: boolean) => Promise<SpaceResult>
+    discard: (requestIds: string[]) => Promise<SpaceResult>
+    createEmployee: (folderId: string, input: NewEmployeeInput) => Promise<SpaceResult>
+    keepFolder: (folderId: string) => Promise<SpaceResult>
+    /** « Plus tard » : la fenêtre passe à la suite, ou se cache. */
+    later: () => Promise<void>
+    /** Le dossier sur app.mapli.fr (adresses de Mapli seulement). */
+    openWeb: (url: string) => Promise<void>
+    /** La fenêtre s'ajuste à la hauteur de son contenu. */
+    resize: (height: number) => void
   }
   settings: {
     get: () => Promise<DriveSettings>

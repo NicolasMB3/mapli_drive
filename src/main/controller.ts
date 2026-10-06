@@ -1,9 +1,22 @@
 import { EventEmitter } from 'events'
 import { clipboard, powerMonitor, shell } from 'electron'
-import type { DriveSettings, DriveState } from '../shared/types'
-import { api, ApiError, NetworkError, type DriveStatusPayload } from './api'
+import type {
+  DriveSettings,
+  DriveState,
+  EmployeeSpaceState,
+  NewEmployeeInput,
+  SpaceResult
+} from '../shared/types'
+import {
+  api,
+  ApiError,
+  NetworkError,
+  type DriveStatusPayload,
+  type EmployeeSpacePendingPayload
+} from './api'
 import { WEB_URL } from './config'
 import { DriveMount } from './drive-mount'
+import { nextPrompt, promptIds, promptKey, pruneSnoozed } from './employee-space'
 import { PairingFlow } from './pairing'
 import { mountPathForOpen } from './platform'
 import {
@@ -43,6 +56,14 @@ export class DriveController extends EventEmitter {
   private revision: string | null = null
   private topFolders: string[] | null = null
   private checkingRevision = false
+  /** Espace salariés : proposé tant que la personne le gère (sinon, jusqu'à la prochaine connexion, plus rien). */
+  private spaceAvailable = true
+  private refreshingSpace = false
+  /** Propositions remises « à plus tard » (identifiants de demandes ou de dossiers). */
+  private readonly snoozed = new Set<string>()
+  /** Après une action réussie, la fenêtre reste le temps de son mot de confirmation. */
+  private holdPopupUntil = 0
+  private holdTimer: NodeJS.Timeout | null = null
 
   private readonly pairing = new PairingFlow({
     onUpdate: (pairing) => this.update({ pairing }),
@@ -62,7 +83,9 @@ export class DriveController extends EventEmitter {
     pendingUploads: 0,
     recent: [],
     error: null,
-    notice: null
+    notice: null,
+    employeeSpace: null,
+    prompt: null
   }
 
   async init(): Promise<void> {
@@ -173,6 +196,8 @@ export class DriveController extends EventEmitter {
       this.topFolders = null
       this.scheduleStats()
       void this.refreshRecent()
+      this.spaceAvailable = true
+      void this.refreshEmployeeSpace()
     } catch (error) {
       this.handleConnectError(error)
     } finally {
@@ -217,6 +242,106 @@ export class DriveController extends EventEmitter {
 
   dismissNotice(): void {
     this.update({ notice: null })
+  }
+
+  // ── Espace salariés (petite fenêtre) ────────────────────
+
+  /** Publier dans l'espace du salarié les documents déposés (et le prévenir par e-mail). */
+  publishEmployeeSpace(requestIds: string[], notify: boolean): Promise<SpaceResult> {
+    return this.spaceAction((token) => api.employeeSpacePublish(token, requestIds, notify))
+  }
+
+  /** Ne pas les publier : ils restent classés dans le dossier, sans arriver chez le salarié. */
+  discardEmployeeSpace(requestIds: string[]): Promise<SpaceResult> {
+    return this.spaceAction((token) => api.employeeSpaceDiscard(token, requestIds))
+  }
+
+  /** Créer l'espace salarié de la personne dont on a créé le dossier à la main. */
+  createEmployeeFromFolder(folderId: string, input: NewEmployeeInput): Promise<SpaceResult> {
+    return this.spaceAction((token) => api.employeeSpaceCreateEmployee(token, folderId, input))
+  }
+
+  /** « Garder un simple dossier » : plus de proposition pour lui. */
+  keepEmployeeFolder(folderId: string): Promise<SpaceResult> {
+    return this.spaceAction((token) => api.employeeSpaceKeepFolder(token, folderId))
+  }
+
+  /** « Plus tard » : la fenêtre passe à la proposition suivante, ou se cache. */
+  laterEmployeeSpace(): void {
+    if (this.state.prompt) promptIds(this.state.prompt).forEach((id) => this.snoozed.add(id))
+    this.holdPopupUntil = 0
+    this.showNextPrompt(true)
+  }
+
+  /** Depuis la zone de notification : tout ce qui attend est reproposé. */
+  showEmployeeSpace(): void {
+    this.snoozed.clear()
+    this.showNextPrompt(true)
+  }
+
+  /** Le dossier sur app.mapli.fr : seulement une adresse de Mapli. */
+  openSpaceWeb(url: unknown): void {
+    if (typeof url === 'string' && url.startsWith(`${WEB_URL}/`)) void shell.openExternal(url)
+  }
+
+  private async spaceAction(
+    call: (token: string) => Promise<{ message: string }>
+  ): Promise<SpaceResult> {
+    if (!this.device) return { ok: false, message: 'Ce poste n’est pas relié à Mapli.' }
+    try {
+      const { message } = await call(this.device.token)
+      // Relu tout de suite : la fenêtre passe à la suite (ou se cache, après sa confirmation).
+      this.holdPopupUntil = Date.now() + 2_200
+      this.applyEmployeeSpace(await api.employeeSpacePending(this.device.token))
+      return { ok: true, message }
+    } catch (error) {
+      return { ok: false, message: this.message(error) }
+    }
+  }
+
+  private async refreshEmployeeSpace(): Promise<void> {
+    if (!this.device || this.state.phase !== 'connected' || !this.spaceAvailable) return
+    if (this.refreshingSpace) return
+    this.refreshingSpace = true
+    try {
+      this.applyEmployeeSpace(await api.employeeSpacePending(this.device.token))
+    } catch (error) {
+      // La personne ne gère pas l'espace salarié, ou l'offre ne l'inclut pas : rien à proposer.
+      if (error instanceof ApiError && [403, 404].includes(error.status)) {
+        this.spaceAvailable = false
+        this.update({ employeeSpace: null, prompt: null })
+        this.emit('prompt-done')
+      }
+    } finally {
+      this.refreshingSpace = false
+    }
+  }
+
+  private applyEmployeeSpace(payload: EmployeeSpacePendingPayload): void {
+    const space: EmployeeSpaceState = {
+      groups: payload.data,
+      newFolders: payload.new_folders,
+      seats: payload.seats
+    }
+    pruneSnoozed(space, this.snoozed)
+    this.update({ employeeSpace: space })
+    this.showNextPrompt(false)
+  }
+
+  /** Met à jour la proposition ; la fenêtre s'ouvre pour une nouvelle, se cache s'il n'y en a plus. */
+  private showNextPrompt(force: boolean): void {
+    if (this.holdTimer) clearTimeout(this.holdTimer)
+    this.holdTimer = null
+    const previous = promptKey(this.state.prompt)
+    const prompt = nextPrompt(this.state.employeeSpace, this.snoozed)
+    this.update({ prompt })
+    if (!prompt) {
+      const wait = this.holdPopupUntil - Date.now()
+      if (wait > 0) this.holdTimer = setTimeout(() => this.showNextPrompt(false), wait)
+      else this.emit('prompt-done')
+    } else if (force || promptKey(prompt) !== previous) {
+      this.emit('prompt')
+    }
   }
 
   getSettings(): DriveSettings {
@@ -306,8 +431,12 @@ export class DriveController extends EventEmitter {
       pendingUploads: 0,
       recent: [],
       error: null,
-      notice
+      notice,
+      employeeSpace: null,
+      prompt: null
     })
+    this.snoozed.clear()
+    this.emit('prompt-done')
   }
 
   private onMountExit(code: number | null): void {
@@ -359,7 +488,11 @@ export class DriveController extends EventEmitter {
       const stats = await this.mount.stats()
       const finished = this.state.transfers.length > 0 && stats.transfers.length === 0
       this.update({ transfers: stats.transfers, pendingUploads: stats.pendingUploads })
-      if (finished) void this.refreshRecent()
+      if (finished) {
+        void this.refreshRecent()
+        // Un fichier vient d'arriver dans le dossier d'un salarié ? La fenêtre le propose.
+        void this.refreshEmployeeSpace()
+      }
       this.scheduleStats()
     }, delay)
   }
@@ -391,6 +524,8 @@ export class DriveController extends EventEmitter {
       this.revision = revision
       this.topFolders = await this.mount.refreshExplorer(first ? null : this.topFolders)
       if (!first) void this.refreshRecent()
+      // Dépôt dans le dossier d'un salarié, dossier créé dans « Espace salariés », validation faite ailleurs.
+      void this.refreshEmployeeSpace()
     } catch {
       // Hors ligne ou token révoqué : la surveillance de la connexion s'en occupe.
     } finally {
