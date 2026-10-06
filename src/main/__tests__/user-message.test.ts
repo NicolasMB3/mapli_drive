@@ -179,11 +179,15 @@ describe('looksFrench', () => {
     for (const message of FRENCH_SERVER_MESSAGES) expect(looksFrench(message)).toBe(true)
     expect(looksFrench('Code invalide ou expire')).toBe(true)
     expect(looksFrench('ECHEC DE LA PUBLICATION')).toBe(true)
+    // Pluriels et féminins : « invalides », « obligatoires », « manquants ».
+    expect(looksFrench('Identifiants invalides.')).toBe(true)
+    expect(looksFrench('Champs obligatoires manquants')).toBe(true)
   })
 
   it('écarte l’anglais, même parsemé de noms accentués ou d’identifiants', () => {
     for (const message of ENGLISH_SERVER_MESSAGES) expect(looksFrench(message)).toBe(false)
     expect(looksFrench('The user René Lefèvre does not exist.')).toBe(false)
+    expect(looksFrench('Too many requests, retry in 60 seconds')).toBe(false)
   })
 
   it('dans le doute (rien de reconnaissable), répond non', () => {

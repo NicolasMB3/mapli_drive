@@ -108,10 +108,12 @@ const FRENCH_WORDS = new Set(
     'le la les un une des du de au aux et ou où est sont été être pas ne ni vous votre vos ' +
     'nous notre nos ce cet cette ces ça cela ceci en dans sur sous pour par avec sans chez ' +
     'entre vers depuis qui que quoi il elle ils elles lui leur leurs sa ses mon ma mes mais ' +
-    'donc très trop déjà encore aussi aucun aucune peut doit sera était avez êtes fait merci ' +
-    'veuillez réessayez erreur introuvable invalide obligatoire requis indisponible interdit ' +
-    'inconnu inconnue manquant manquante fichier fichiers coffre poste appareil compte offre ' +
-    'espace accès salarié salariés'
+    'donc très trop déjà encore aussi aucun aucune tout toute tous toutes autre oui fois peut ' +
+    'doit sera était avez êtes fait merci veuillez réessayez essayez patientez contactez ' +
+    'connectez reconnectez demandez indiquez saisissez choisissez erreur introuvable invalide ' +
+    'obligatoire requis requise indisponible interdit interdite inconnu inconnue manquant ' +
+    'manquante nouveau nouvelle fichier coffre poste appareil compte offre espace accès ' +
+    'salarié lien nom champ adresse connexion demande valeur taille ville'
   ).split(' ')
 )
 
@@ -156,9 +158,20 @@ export function looksFrench(text: string): boolean {
       token = token.replace(ELISION, '')
     }
     for (const word of token.split(/[^a-zàâäçéèêëîïôöœùûüÿ]+/)) {
-      if (FRENCH_WORDS.has(word)) french += 1
-      else if (ENGLISH_WORDS.has(word)) english += 1
+      const language = wordLanguage(word)
+      if (language === 'fr') french += 1
+      else if (language === 'en') english += 1
     }
   }
   return french + (signs ? 1 : 0) > english
+}
+
+/** Langue d'un mot des listes, au pluriel aussi (« invalides », « attempts ») ; null sinon. */
+function wordLanguage(word: string): 'fr' | 'en' | null {
+  const forms = word.length > 3 && word.endsWith('s') ? [word, word.slice(0, -1)] : [word]
+  for (const form of forms) {
+    if (FRENCH_WORDS.has(form)) return 'fr'
+    if (ENGLISH_WORDS.has(form)) return 'en'
+  }
+  return null
 }
