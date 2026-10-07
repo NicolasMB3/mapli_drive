@@ -1,6 +1,6 @@
 import { spawn, execFile, execFileSync, type ChildProcess } from 'child_process'
 import { randomBytes } from 'crypto'
-import { existsSync, mkdirSync, writeFileSync } from 'fs'
+import { appendFileSync, existsSync, mkdirSync, writeFileSync } from 'fs'
 import { readdir } from 'fs/promises'
 import http from 'http'
 import { createServer } from 'net'
@@ -11,6 +11,7 @@ import { VOLUME_NAME } from './config'
 import { UserFacingError } from './errors'
 import { helperArgs, ShellNotifier } from './explorer-notify'
 import { forgetParams, TRASH_FOLDER, type InvalidationPlan } from './invalidation'
+import { findWebdavMount } from './mac-mounts'
 import {
   killRecordedOrphan,
   parseTasklist,
@@ -118,6 +119,20 @@ function freePort(): Promise<number> {
       )
     })
   })
+}
+
+/**
+ * Journal du montage macOS, pour comprendre un échec (le message à l'écran reste
+ * générique) : ~/Library/Logs/Mapli Drive/montage.log. Jamais de token.
+ */
+function macLog(message: string): void {
+  try {
+    const dir = app.getPath('logs')
+    mkdirSync(dir, { recursive: true })
+    appendFileSync(join(dir, 'montage.log'), `${new Date().toISOString()} ${message}\n`)
+  } catch {
+    // Journal facultatif : son échec ne doit jamais gêner le montage.
+  }
 }
 
 /** Échappement d'une chaîne AppleScript entre guillemets. */
@@ -491,7 +506,43 @@ export class DriveMount {
     return 'Le lecteur n’a pas pu être monté. Réessayez dans un instant.'
   }
 
-  private mountMac(request: MountRequest): Promise<string> {
+  /**
+   * Monte le volume par le Finder. Un volume resté monté (session précédente, montage que
+   * macOS a terminé après le délai) faisait échouer chaque nouvelle tentative : il est
+   * démonté pour repartir avec le token actuel, ou repris tel quel s'il est occupé.
+   */
+  private async mountMac(request: MountRequest): Promise<string> {
+    const leftover = await findWebdavMount(request.finderUrl)
+    if (leftover) {
+      await this.unmountMac(leftover, false)
+      if (await findWebdavMount(request.finderUrl)) {
+        macLog(`volume déjà monté et occupé, repris : ${leftover}`)
+        this.mountedPath = leftover
+        return leftover
+      }
+    }
+
+    try {
+      const path = await this.mountVolume(request)
+      this.mountedPath = path
+      return path
+    } catch (error) {
+      // macOS peut finir le montage juste après le délai, ou malgré une erreur d'osascript :
+      // un volume présent et lisible est repris au lieu d'annoncer un échec.
+      for (let attempt = 0; attempt < 10; attempt++) {
+        const late = await findWebdavMount(request.finderUrl)
+        if (late && (await probePath(late, 5_000)) === 'ok') {
+          macLog(`montage constaté malgré l'erreur, repris : ${late}`)
+          this.mountedPath = late
+          return late
+        }
+        await sleep(1_000)
+      }
+      throw error
+    }
+  }
+
+  private mountVolume(request: MountRequest): Promise<string> {
     return new Promise((resolve, reject) => {
       // Le token part par l'entrée standard d'osascript (jamais dans la liste des processus).
       const script = [
@@ -507,6 +558,7 @@ export class DriveMount {
 
       const timer = setTimeout(() => {
         proc.kill()
+        macLog(`montage : délai de ${MOUNT_TIMEOUT_MS / 1000} s dépassé`)
         reject(new UserFacingError('Le montage a pris trop de temps. Réessayez dans un instant.'))
       }, MOUNT_TIMEOUT_MS)
 
@@ -514,6 +566,13 @@ export class DriveMount {
         clearTimeout(timer)
         const path = stdout.trim().replace(/\/+$/, '')
         if (code !== 0 || !path) {
+          // Le token ne figure jamais au journal, même si osascript recopiait le script.
+          const detail = stderr
+            .split(request.token)
+            .join('[token]')
+            .replace(/with password "[^"]*"/g, 'with password "[masqué]"')
+            .trim()
+          macLog(`montage : échec (code ${code}) ${detail || 'sans message'}`)
           reject(
             new UserFacingError(
               /-128|annul/i.test(stderr)
@@ -523,7 +582,6 @@ export class DriveMount {
           )
           return
         }
-        this.mountedPath = path
         resolve(path)
       })
 
@@ -532,10 +590,11 @@ export class DriveMount {
     })
   }
 
-  private unmountMac(path: string): Promise<void> {
+  /** Démonte le volume ; `force` : même occupé (sinon, un volume occupé reste monté). */
+  private unmountMac(path: string, force = true): Promise<void> {
     return new Promise((resolve) => {
       execFile('diskutil', ['unmount', path], { timeout: 10_000 }, (error) => {
-        if (!error) return resolve()
+        if (!error || !force) return resolve()
         execFile('diskutil', ['unmount', 'force', path], { timeout: 10_000 }, () => resolve())
       })
     })
