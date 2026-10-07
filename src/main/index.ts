@@ -35,7 +35,7 @@ import {
 import { APP_ID, WEB_URL } from './config'
 import { DriveController } from './controller'
 import { validId, validIds } from './employee-space'
-import { availableDriveLetters, getIconPath, IS_WIN } from './platform'
+import { availableDriveLetters, getIconPath, IS_MAC, IS_WIN } from './platform'
 import { isFirstLaunch, markLaunched } from './session'
 import { createTray } from './tray'
 import { checkForUpdates, currentUpdateStatus, installUpdate, setupAutoUpdater } from './updater'
@@ -90,7 +90,11 @@ function createWindow(): BrowserWindow {
     width: 420,
     height: 660,
     show: false,
-    frame: false,
+    // macOS : les boutons du système (fermer, réduire) sur la barre de l'application ;
+    // Windows : fenêtre sans cadre, ses boutons sont dans la barre de titre (Titlebar).
+    ...(IS_MAC
+      ? { titleBarStyle: 'hidden' as const, trafficLightPosition: { x: 13, y: 11 } }
+      : { frame: false }),
     resizable: false,
     maximizable: false,
     fullscreenable: false,
