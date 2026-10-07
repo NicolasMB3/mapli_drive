@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseWebdavMount } from '../mac-mounts'
+import { hasMountAt, parseWebdavMount } from '../mac-mounts'
 
 const MOUNT = [
   '/dev/disk3s1s1 on / (apfs, sealed, local, read-only, journaled)',
@@ -30,5 +30,32 @@ describe('parseWebdavMount', () => {
     const smb =
       '//nicolas@nas/partage on /Volumes/partage (smbfs, nodev, nosuid, mounted by nicolas)'
     expect(parseWebdavMount(smb, '//nicolas@nas/partage')).toBeNull()
+  })
+})
+
+describe('hasMountAt', () => {
+  const table = [
+    '/dev/disk3s1s1 on / (apfs, sealed, local, read-only, journaled)',
+    'localhost:/ on /Users/julie/Library/Application Support/mapli-drive/Mapli (nfs, nodev, nosuid, mounted by julie)',
+    'https://app.mapli.fr/Mapli/ on /Volumes/Mapli (webdav, nodev, noexec, nosuid, mounted by julie)'
+  ].join('\n')
+  const nfsPoint = '/Users/julie/Library/Application Support/mapli-drive/Mapli'
+
+  it('reconnaît le lecteur NFS par son dossier (espaces compris)', () => {
+    expect(hasMountAt(table, nfsPoint, 'nfs')).toBe(true)
+    expect(hasMountAt(table, `${nfsPoint}/`, 'nfs')).toBe(true)
+  })
+
+  it('distingue le type de volume', () => {
+    expect(hasMountAt(table, nfsPoint, 'webdav')).toBe(false)
+    expect(hasMountAt(table, '/Volumes/Mapli', 'webdav')).toBe(true)
+    expect(hasMountAt(table, '/Volumes/Mapli', 'nfs')).toBe(false)
+  })
+
+  it('ne confond pas un dossier voisin', () => {
+    expect(hasMountAt(table, '/Users/julie/Library/Application Support/mapli-drive', 'nfs')).toBe(
+      false
+    )
+    expect(hasMountAt('', nfsPoint, 'nfs')).toBe(false)
   })
 })

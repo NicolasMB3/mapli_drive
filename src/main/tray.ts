@@ -1,4 +1,5 @@
 import { Menu, Tray, app, nativeImage, type MenuItemConstructorOptions } from 'electron'
+import { driveLabel } from '../shared/drive-label'
 import type { DriveState } from '../shared/types'
 import { PRODUCT_NAME } from './config'
 import { pendingCount } from './employee-space'
@@ -44,9 +45,10 @@ export function createTray(
   const label = (state: DriveState): string => {
     switch (state.phase) {
       case 'connected':
+        if (state.notice) return 'Envoi impossible · voir Mapli Drive'
         return state.transfers.length > 0
           ? `Envoi en cours (${state.transfers.length})`
-          : `Lecteur ${state.mountPoint} · à jour`
+          : `Lecteur ${driveLabel(state.mountPoint)} · à jour`
       case 'connecting':
         return 'Connexion du lecteur…'
       case 'pairing':
@@ -95,7 +97,7 @@ export function createTray(
       ...(state.phase === 'connected'
         ? [
             {
-              label: `Ouvrir le lecteur ${state.mountPoint}`,
+              label: `Ouvrir le lecteur ${driveLabel(state.mountPoint)}`,
               click: () => controller.openDrive()
             }
           ]

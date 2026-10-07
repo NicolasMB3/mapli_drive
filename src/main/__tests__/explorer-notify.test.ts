@@ -125,6 +125,80 @@ describe('assistant de notification de l’Explorateur', () => {
     expect(notifier.running).toBe(false)
   })
 
+  it('garde le surplus d’une grosse rafale pour le lot suivant (rien n’est perdu)', async () => {
+    const { notifier, helpers } = setup()
+    notifier.notify(
+      Array.from({ length: 250 }, (_, i) => ({
+        event: 'updatedir' as const,
+        path: `${ROOT}Dossier ${i}`
+      }))
+    )
+    await vi.advanceTimersByTimeAsync(250)
+    expect(helpers[0].batches()).toHaveLength(1)
+    expect(helpers[0].batches()[0]).toHaveLength(200)
+    await vi.advanceTimersByTimeAsync(250)
+    expect(helpers[0].batches()).toHaveLength(2)
+    expect(helpers[0].batches()[1]).toHaveLength(50)
+  })
+
+  it('laisse 30 s pour démarrer, puis 15 s pour répondre', async () => {
+    const { notifier, helpers } = setup()
+    notifier.notify([{ event: 'updatedir', path: ROOT }])
+    await vi.advanceTimersByTimeAsync(250)
+    // PowerShell lent à charger (antivirus…), mais dans les temps.
+    await vi.advanceTimersByTimeAsync(20_000)
+    expect(helpers[0].killed).toBe(false)
+    helpers[0].say('ready')
+    await vi.advanceTimersByTimeAsync(14_000)
+    expect(helpers[0].killed).toBe(false)
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(helpers[0].killed).toBe(true)
+  })
+
+  it('compte un démarrage trop long comme un échec, et finit par abandonner', async () => {
+    const { notifier, helpers } = setup()
+    for (let i = 0; i < 3; i++) {
+      notifier.notify([{ event: 'updatedir', path: ROOT }])
+      await vi.advanceTimersByTimeAsync(250)
+      await vi.advanceTimersByTimeAsync(30_000)
+      expect(helpers[i].killed).toBe(true)
+    }
+    notifier.notify([{ event: 'updatedir', path: ROOT }])
+    await vi.advanceTimersByTimeAsync(250)
+    expect(helpers).toHaveLength(3)
+  })
+
+  it('s’arrête après 5 min sans notification, et repart au lot suivant', async () => {
+    const { notifier, helpers } = setup()
+    notifier.notify([{ event: 'updatedir', path: ROOT }])
+    await vi.advanceTimersByTimeAsync(250)
+    helpers[0].say('ready')
+    helpers[0].say('ok')
+    await vi.advanceTimersByTimeAsync(5 * 60_000 - 1)
+    expect(notifier.running).toBe(true)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(notifier.running).toBe(false)
+    expect(helpers[0].ended).toBe(true)
+
+    notifier.notify([{ event: 'updatedir', path: ROOT }])
+    await vi.advanceTimersByTimeAsync(250)
+    expect(helpers).toHaveLength(2)
+    expect(helpers[1].batches()).toEqual([[helperLine({ event: 'updatedir', path: ROOT })]])
+  })
+
+  it('reste lancé tant que des notifications arrivent', async () => {
+    const { notifier, helpers } = setup()
+    for (let i = 0; i < 3; i++) {
+      notifier.notify([{ event: 'updatedir', path: `${ROOT}Clients ${i}` }])
+      await vi.advanceTimersByTimeAsync(250)
+      if (i === 0) helpers[0].say('ready')
+      helpers[0].say('ok')
+      await vi.advanceTimersByTimeAsync(4 * 60_000)
+    }
+    expect(notifier.running).toBe(true)
+    expect(helpers).toHaveLength(1)
+  })
+
   it('abandonne pour la session après trois échecs de démarrage (stratégie imposée…)', async () => {
     const { notifier, helpers } = setup()
     for (let i = 0; i < 3; i++) {

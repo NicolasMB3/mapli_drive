@@ -10,6 +10,7 @@ import type {
 import type { MapliApi } from '../shared/bridge'
 import {
   IPC_APP_INFO,
+  IPC_APP_OPEN_LOGS,
   IPC_DRIVE_CANCEL_PAIRING,
   IPC_DRIVE_DISMISS_NOTICE,
   IPC_DRIVE_OPEN,
@@ -55,6 +56,7 @@ const api: MapliApi = {
     close: () => ipcRenderer.send(IPC_WINDOW_CLOSE)
   },
   info: (): Promise<AppInfo> => ipcRenderer.invoke(IPC_APP_INFO),
+  openLogs: (): Promise<void> => ipcRenderer.invoke(IPC_APP_OPEN_LOGS),
   drive: {
     state: (): Promise<DriveState> => ipcRenderer.invoke(IPC_DRIVE_STATE),
     onState: (callback: (state: DriveState) => void) =>

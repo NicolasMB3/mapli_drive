@@ -10,10 +10,12 @@ import type {
 import { api, type DriveStatusPayload, type EmployeeSpacePendingPayload } from './api'
 import { jittered, reconnectRetryDelay } from './backoff'
 import { API_URL, WEB_URL } from './config'
+import { devToken } from './dev-profile'
 import { DriveMount } from './drive-mount'
 import { FolderNames, nextPrompt, promptIds, promptKey, pruneSnoozed } from './employee-space'
 import { ApiError, NetworkError } from './errors'
 import { LiveSync } from './live-sync'
+import { log, since } from './log'
 import { PairingFlow } from './pairing'
 import { mountPathForOpen } from './platform'
 import { RealtimeClient } from './realtime'
@@ -31,6 +33,7 @@ import {
   type Device
 } from './session'
 import { changedKeys } from './state-diff'
+import { refusalNotice } from './upload-queue'
 import { statsDelay, uploadsSettled, type UploadSnapshot } from './upload-watch'
 import { frenchOr, toUserMessage, type ErrorContext } from './user-message'
 
@@ -61,7 +64,14 @@ export class DriveController extends EventEmitter {
   private windowVisible = false
   /** Erreurs de rclone au dernier relevé, et dernière vérification du token. */
   private rcloneErrors = 0
+  private lastTransferError: string | null = null
   private tokenCheckedAt = 0
+  /** Envois qui avancent au dernier relevé (sans ceux qu'un refus fait attendre). */
+  private activeUploads = 0
+  /** Fichiers refusés au dernier relevé, et l'alerte qu'ils donnent (fermée ou non). */
+  private failingKey = ''
+  private refusal: string | null = null
+  private dismissedRefusal: string | null = null
   /** Espace salariés : proposé tant que la personne le gère (sinon, jusqu'à la prochaine connexion, plus rien). */
   private spaceAvailable = true
   private refreshingSpace = false
@@ -77,6 +87,8 @@ export class DriveController extends EventEmitter {
   /** Nouveaux dossiers : proposés une fois nommés (pas « Nouveau dossier ») et leur nom posé. */
   private readonly folderNames = new FolderNames()
   private folderTimer: NodeJS.Timeout | null = null
+  /** L'application se ferme : un arrêt de rclone n'est plus une panne. */
+  private shuttingDown = false
 
   private readonly pairing = new PairingFlow({
     onUpdate: (pairing) => this.update({ pairing }),
@@ -113,10 +125,10 @@ export class DriveController extends EventEmitter {
           clearEndpoint: clearRealtimeEndpoint,
           allowInsecure: API_URL.startsWith('http://'),
           online: () => net.isOnline(),
-          log: (message) => console.info(`[Mapli Drive] ${message}`)
+          log: (message) => log.info(message)
         }),
       isLocked: () => powerMonitor.getSystemIdleState(60) === 'locked',
-      log: (message) => console.info(`[Mapli Drive] ${message}`)
+      log: (message) => log.info(message)
     }
   )
 
@@ -138,12 +150,17 @@ export class DriveController extends EventEmitter {
   }
 
   async init(): Promise<void> {
-    // rclone resté d'une session interrompue : arrêté avant le montage, sans bloquer.
-    await DriveMount.cleanupOrphans()
+    // rclone resté d'une session interrompue (et, sous macOS, son volume) : arrêté avant le
+    // montage, sans bloquer.
+    await DriveMount.cleanupOrphans(this.settings.mountPoint)
 
     // Veille et écran verrouillé : plus rien ne part ; au retour, reconnexion étalée.
-    powerMonitor.on('suspend', () => this.live.setSuspended(true))
+    powerMonitor.on('suspend', () => {
+      log.info('mise en veille')
+      this.live.setSuspended(true)
+    })
     powerMonitor.on('resume', () => {
+      log.info('sortie de veille')
       this.live.setSuspended(false)
       setTimeout(() => void this.reconnectIfNeeded(), 3_000)
     })
@@ -151,7 +168,7 @@ export class DriveController extends EventEmitter {
     powerMonitor.on('unlock-screen', () => this.live.setLocked(false))
     this.scheduleHealth()
 
-    this.device = loadDevice()
+    this.device = loadDevice() ?? (await this.devDevice())
     if (!this.device) {
       this.update({ phase: 'unpaired' })
       return
@@ -159,6 +176,21 @@ export class DriveController extends EventEmitter {
 
     this.update({ device: { organization: this.device.organization, user: this.device.user } })
     await this.connect()
+  }
+
+  /** Bancs et développement : le poste relié par un token fourni (voir dev-profile.ts). */
+  private async devDevice(): Promise<Device | null> {
+    const token = devToken()
+    if (!token) return null
+    try {
+      const status = await api.driveStatus(token)
+      saveDevice({ token, organization: status.organization, user: status.user })
+      log.info(`poste de développement relié (${status.organization.name})`)
+      return loadDevice()
+    } catch (error) {
+      log.warn('token de développement refusé', error)
+      return null
+    }
   }
 
   /** La fenêtre est-elle visible ? Les transferts y sont suivis de plus près. */
@@ -187,7 +219,8 @@ export class DriveController extends EventEmitter {
 
   openVerification(): void {
     if (this.state.pairing) {
-      clipboard.writeText(this.state.pairing.code)
+      // Presse-papiers asynchrone depuis Electron 44 : un échec ne bloque pas l'ouverture.
+      void Promise.resolve(clipboard.writeText(this.state.pairing.code)).catch(() => undefined)
       void shell.openExternal(this.state.pairing.url)
     }
   }
@@ -220,6 +253,7 @@ export class DriveController extends EventEmitter {
     this.clearRetry()
     this.live.stop()
     this.update({ phase: 'connecting', error: null })
+    const started = Date.now()
 
     try {
       const status = await api.driveStatus(this.device.token)
@@ -247,7 +281,9 @@ export class DriveController extends EventEmitter {
       this.retryCount = 0
       this.healthFailures = 0
       this.rcloneErrors = 0
+      this.lastTransferError = null
       this.update({ phase: 'connected', mounted: true, mountPoint: path })
+      log.info(`connecté en ${since(started)} (${status.organization.name})`)
       // Nouveau montage : la synchronisation repart (la première révision lue relit aussi
       // l'arborescence de l'Explorateur).
       this.live.start()
@@ -279,6 +315,7 @@ export class DriveController extends EventEmitter {
     this.live.stop()
     const token = this.device?.token
     await this.mount.unmount()
+    await this.mount.purgeCache()
     if (token) {
       try {
         await api.disconnect(token)
@@ -300,6 +337,9 @@ export class DriveController extends EventEmitter {
   }
 
   dismissNotice(): void {
+    // Alerte d'envoi refusé fermée : elle ne revient que pour d'autres fichiers ou une autre raison.
+    if (this.refusal !== null && this.state.notice === this.refusal)
+      this.dismissedRefusal = this.refusal
     this.update({ notice: null })
   }
 
@@ -470,12 +510,18 @@ export class DriveController extends EventEmitter {
 
   /** Fermeture de l'application : démontage propre (envois terminés). */
   async shutdown(): Promise<void> {
+    this.shuttingDown = true
     this.live.stop()
     if (this.healthTimer) clearTimeout(this.healthTimer)
     this.clearRetry()
     if (this.statsTimer) clearTimeout(this.statsTimer)
     this.pairing.cancel()
+    const started = Date.now()
+    const pending = this.state.pendingUploads
     await this.mount.unmount()
+    log.info(
+      `arrêt : lecteur démonté en ${since(started)}${pending ? ` (${pending} envoi(s) attendu(s))` : ''}`
+    )
   }
 
   killSync(): void {
@@ -535,7 +581,7 @@ export class DriveController extends EventEmitter {
     if (!this.device) return
     this.clearRetry()
     this.live.stop()
-    void this.mount.unmount(false)
+    void this.mount.unmount(false).then(() => this.mount.purgeCache())
     this.forgetDevice('Ce poste a été déconnecté de Mapli. Reliez-le pour retrouver le lecteur.')
   }
 
@@ -562,7 +608,9 @@ export class DriveController extends EventEmitter {
   }
 
   private onMountExit(code: number | null): void {
-    // Arrêt inattendu de rclone : on remonte (avec temporisation).
+    // Arrêt inattendu de rclone : on remonte (avec temporisation). Pendant la fermeture de
+    // l'application, rclone part avec elle (même signal) : rien à faire.
+    if (this.shuttingDown) return
     if (this.state.phase === 'connected') {
       this.live.stop()
       this.update({
@@ -586,6 +634,7 @@ export class DriveController extends EventEmitter {
       const healthy = await this.mount.healthy()
       if (this.state.phase !== 'connected') return
       this.healthFailures = healthy ? 0 : this.healthFailures + 1
+      if (!healthy) log.warn(`lecteur sans réponse (${this.healthFailures}/${HEALTH_FAILURES})`)
       if (this.healthFailures >= HEALTH_FAILURES) {
         this.healthFailures = 0
         this.live.stop()
@@ -593,7 +642,7 @@ export class DriveController extends EventEmitter {
         this.scheduleRetry()
       }
     } catch (error) {
-      console.warn('[Mapli Drive] santé du lecteur', error)
+      log.warn('santé du lecteur', error)
     } finally {
       this.scheduleHealth()
     }
@@ -634,6 +683,7 @@ export class DriveController extends EventEmitter {
         const stats = await this.mount.stats()
         const previous = this.uploadSnapshot()
         this.completedTransfers = stats.completed
+        this.activeUploads = stats.activeUploads
         // Rien ne part ni n'attend, comme au relevé précédent : l'état ne change pas (pas de
         // quoi redessiner l'icône et son menu à chaque relevé).
         const unchanged =
@@ -644,10 +694,26 @@ export class DriveController extends EventEmitter {
           this.update({ transfers: stats.transfers, pendingUploads: stats.pendingUploads })
         }
         if (uploadsSettled(previous, this.uploadSnapshot())) {
+          const sent = stats.completed - previous.completed
+          if (sent > 0) log.info(`envois terminés : ${sent} fichier(s)`)
           this.live.uploadsSettled()
           if (this.windowVisible) void this.refreshRecent()
           // Un fichier vient d'arriver dans le dossier d'un salarié ? La fenêtre le propose.
           void this.refreshEmployeeSpace()
+        }
+        // rclone réessaie un envoi refusé toutes les 5 min au plus : chaque erreur une fois.
+        if (stats.errors > this.rcloneErrors && stats.lastError !== this.lastTransferError) {
+          log.warn(`erreur de transfert (${stats.errors}) : ${stats.lastError ?? 'sans détail'}`)
+          this.lastTransferError = stats.lastError
+        }
+        // Fichiers refusés : dit dans la fenêtre et le menu de l'icône, avec leur raison.
+        const failingKey = stats.failing.join('\n')
+        if (
+          failingKey !== this.failingKey ||
+          (stats.errors > this.rcloneErrors && stats.failing.length > 0)
+        ) {
+          this.failingKey = failingKey
+          void this.refreshRefusal(stats.failing)
         }
         // rclone essuie des refus (401) : le poste a peut-être été révoqué.
         if (
@@ -665,9 +731,28 @@ export class DriveController extends EventEmitter {
   private uploadSnapshot(): UploadSnapshot {
     return {
       transfers: this.state.transfers.length,
-      pendingUploads: this.state.pendingUploads,
+      activeUploads: this.activeUploads,
       completed: this.completedTransfers
     }
+  }
+
+  /**
+   * Alerte des envois refusés (voir upload-queue) : la raison de chaque fichier vient du
+   * journal de rclone. Elle disparaît d'elle-même une fois les fichiers partis (espace
+   * libéré…) ; fermée, elle ne revient que si elle change.
+   */
+  private async refreshRefusal(failing: string[]): Promise<void> {
+    const notice =
+      failing.length > 0 ? refusalNotice(failing, await this.mount.uploadErrors()) : null
+    if (notice === this.refusal) return
+    const shown = this.refusal !== null && this.state.notice === this.refusal
+    this.refusal = notice
+    if (notice === null) {
+      if (shown) this.update({ notice: null })
+      return
+    }
+    log.warn(`envoi refusé par le serveur (${failing.length} fichier(s) en attente)`)
+    if (notice !== this.dismissedRefusal) this.update({ notice })
   }
 
   /** Le token est-il toujours valable ? (401 : le poste est déconnecté.) */
@@ -693,13 +778,17 @@ export class DriveController extends EventEmitter {
 
   /** La phrase à montrer, en français ; le détail technique (souvent anglais) va à la console. */
   private message(error: unknown, context: ErrorContext): string {
-    console.warn(`[Mapli Drive] ${context}`, error)
+    log.warn(context, error)
     return toUserMessage(error, context)
   }
 
   /** Seulement si quelque chose change : l'icône, son menu et les fenêtres ne sont pas redessinés pour rien. */
   private update(partial: Partial<DriveState>): void {
     if (changedKeys(this.state, partial).length === 0) return
+    if (partial.phase && partial.phase !== this.state.phase)
+      log.info(
+        `état : ${this.state.phase} → ${partial.phase}${partial.error ? ` (${partial.error})` : ''}`
+      )
     this.state = { ...this.state, ...partial }
     this.emit('state', this.state)
   }

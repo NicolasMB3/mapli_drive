@@ -272,6 +272,7 @@ function createMock(): MapliApi {
   return {
     window: { minimize: () => {}, close: () => {} },
     info: async () => ({ version: '3.0.0', platform: 'win32', webUrl: 'https://app.mapli.fr' }),
+    openLogs: noop,
     drive: {
       state: async () => state,
       onState: (callback) => {

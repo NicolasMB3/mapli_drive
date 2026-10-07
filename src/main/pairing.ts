@@ -4,6 +4,7 @@ import type { DeviceInfo, PairingInfo } from '../shared/types'
 import { PRODUCT_NAME } from './config'
 import { ApiError, NetworkError } from './errors'
 import { toUserMessage } from './user-message'
+import { log } from './log'
 
 /*
  * Appairage du poste (Device Authorization Grant) : Mapli remet un code « MAPL-XXXX »,
@@ -109,7 +110,7 @@ export class PairingFlow {
       }
       if (!(error instanceof NetworkError)) {
         // En français pour la fenêtre (le serveur ou un proxy peut répondre en anglais).
-        console.warn('[Mapli Drive] pairing', error)
+        log.warn('appairage', error)
         this.callbacks.onError(toUserMessage(error, 'pairing'))
       }
       // Réseau momentanément coupé : on réessaie au prochain tour.

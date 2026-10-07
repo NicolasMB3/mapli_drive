@@ -9,8 +9,12 @@
 export interface UploadSnapshot {
   /** Transferts en cours. */
   transfers: number
-  /** Envois en attente (écriture différée) ou en cours. */
-  pendingUploads: number
+  /**
+   * Envois qui avancent : en attente (écriture différée) ou en cours — sans ceux qu'un
+   * refus fait attendre (rclone les réessaie toutes les 5 min : pas de quoi relever les
+   * statistiques à la seconde).
+   */
+  activeUploads: number
   /** Transferts terminés depuis le démarrage de rclone (compteur cumulé). */
   completed: number
 }
@@ -30,7 +34,7 @@ export const STATS_IDLE_MS = 2_500
  */
 export const STATS_IDLE_PUSH_MS = 10_000
 
-const busy = (s: UploadSnapshot): boolean => s.transfers > 0 || s.pendingUploads > 0
+const busy = (s: UploadSnapshot): boolean => s.transfers > 0 || s.activeUploads > 0
 
 export function statsDelay(
   windowVisible: boolean,

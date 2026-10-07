@@ -8,20 +8,20 @@ import {
   uploadsSettled
 } from '../upload-watch'
 
-const idle = { transfers: 0, pendingUploads: 0, completed: 4 }
+const idle = { transfers: 0, activeUploads: 0, completed: 4 }
 
 describe('suivi des envois', () => {
   it('watches closely while a file waits or leaves, and when the window is open', () => {
     expect(statsDelay(false, idle)).toBe(STATS_IDLE_MS)
     expect(statsDelay(true, idle)).toBe(STATS_ACTIVE_MS)
-    expect(statsDelay(false, { ...idle, pendingUploads: 1 })).toBe(STATS_ACTIVE_MS)
+    expect(statsDelay(false, { ...idle, activeUploads: 1 })).toBe(STATS_ACTIVE_MS)
     expect(statsDelay(false, { ...idle, transfers: 1 })).toBe(STATS_ACTIVE_MS)
   })
 
   it('spaces idle checks out while the server pushes changes (it announces deposits itself)', () => {
     expect(statsDelay(false, idle, true)).toBe(STATS_IDLE_PUSH_MS)
     expect(statsDelay(true, idle, true)).toBe(STATS_ACTIVE_MS)
-    expect(statsDelay(false, { ...idle, pendingUploads: 1 }, true)).toBe(STATS_ACTIVE_MS)
+    expect(statsDelay(false, { ...idle, activeUploads: 1 }, true)).toBe(STATS_ACTIVE_MS)
     // Un envoi fini entre deux relevés espacés reste vu, grâce au compteur cumulé.
     expect(uploadsSettled(idle, { ...idle, completed: 6 })).toBe(true)
   })
@@ -35,7 +35,7 @@ describe('suivi des envois', () => {
 
   it('tells when an upload has just finished', () => {
     // Attendait ou partait, et plus rien : terminé.
-    expect(uploadsSettled({ ...idle, pendingUploads: 1 }, idle)).toBe(true)
+    expect(uploadsSettled({ ...idle, activeUploads: 1 }, idle)).toBe(true)
     expect(uploadsSettled({ ...idle, transfers: 1 }, idle)).toBe(true)
     // Envoyé en un éclair entre deux relevés : le compteur de rclone l'a vu.
     expect(uploadsSettled(idle, { ...idle, completed: 5 })).toBe(true)
@@ -43,7 +43,7 @@ describe('suivi des envois', () => {
 
   it('stays quiet while uploads go on, when nothing happened, or after rclone restarted', () => {
     expect(
-      uploadsSettled({ ...idle, pendingUploads: 1 }, { ...idle, transfers: 1, completed: 5 })
+      uploadsSettled({ ...idle, activeUploads: 1 }, { ...idle, transfers: 1, completed: 5 })
     ).toBe(false)
     expect(uploadsSettled(idle, idle)).toBe(false)
     expect(uploadsSettled(idle, { ...idle, completed: 0 })).toBe(false)

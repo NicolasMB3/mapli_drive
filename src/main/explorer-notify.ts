@@ -7,10 +7,15 @@ import type { ShellChange } from './shell-changes'
  * notification du shell (SHChangeNotify) : sans elle, un dossier supprimé sur le web y
  * reste affiché, même après F5.
  *
- * Un seul assistant PowerShell pour toute la session (resources/explorer-notify.ps1,
- * lancé avec -File, sans commande encodée ni compilation C#), nourri par son entrée
- * standard ; les notifications sont groupées par lots. Sans Electron pour être testé :
- * le lancement du processus est fourni par l'appelant (drive-mount.ts).
+ * Un assistant PowerShell (resources/explorer-notify.ps1, lancé avec -File, sans commande
+ * encodée ni compilation C#), nourri par son entrée standard ; les notifications sont
+ * groupées par lots. Lancé à la première notification, il s'arrête après 5 min sans
+ * notification : un PowerShell en attente garde plusieurs dizaines de Mo de mémoire engagée
+ * (chargement de .NET ; mesuré par scripts/bench/windows-bench.ps1), pour des changements
+ * faits ailleurs qui arrivent par rafales, et la nuit pas du tout. Le relancer coûte de
+ * l'ordre d'une seconde, sans effet visible.
+ * Sans Electron pour être testé : le lancement du processus est fourni par l'appelant
+ * (drive-mount.ts).
  */
 
 export const SHELL_EVENTS: Record<ShellChange['event'], number> = {
@@ -40,6 +45,10 @@ export interface NotifierOptions {
   batchMs?: number
   /** Sans « ok » de l'assistant dans ce délai, il est arrêté (relancé au lot suivant). */
   ackTimeoutMs?: number
+  /** Sans « ready » dans ce délai, le démarrage compte comme un échec. */
+  startTimeoutMs?: number
+  /** Sans notification pendant ce temps, l'assistant s'arrête (relancé au besoin). */
+  idleMs?: number
   /** Échecs de démarrage consécutifs avant d'abandonner pour la session. */
   maxStartFailures?: number
   log?(message: string): void
@@ -47,8 +56,11 @@ export interface NotifierOptions {
 
 export const BATCH_MS = 250
 export const ACK_TIMEOUT_MS = 15_000
+/** Démarrage de PowerShell : une à deux secondes d'habitude, bien plus sous un antivirus zélé. */
+export const START_TIMEOUT_MS = 30_000
+export const IDLE_MS = 5 * 60_000
 export const MAX_START_FAILURES = 3
-/** Au-delà, un lot est coupé (l'Explorateur n'a pas besoin de plus). */
+/** Au-delà, le reste part au lot suivant (un lot de plus, 250 ms plus tard). */
 export const MAX_BATCH = 200
 
 /** Ligne du protocole : « <événement>\t<chemin en base64 UTF-8> » (aucun souci d'encodage de console). */
@@ -83,6 +95,7 @@ export class ShellNotifier {
   private disposed = false
   private batchTimer: unknown = null
   private ackTimer: unknown = null
+  private idleTimer: unknown = null
   private awaitingAcks = 0
   private stdoutBuffer = ''
 
@@ -94,8 +107,8 @@ export class ShellNotifier {
   notify(changes: ShellChange[]): void {
     if (this.disabled || this.disposed || changes.length === 0) return
     for (const change of changes) this.queue.set(`${change.event}\t${change.path}`, change)
-    if (this.batchTimer === null)
-      this.batchTimer = this.clock.setTimeout(() => this.flush(), this.options.batchMs ?? BATCH_MS)
+    this.clearIdle()
+    this.scheduleBatch()
   }
 
   /** Fermeture de l'application : l'assistant s'arrête avec elle. */
@@ -111,16 +124,23 @@ export class ShellNotifier {
     return this.helper !== null
   }
 
+  private scheduleBatch(): void {
+    if (this.batchTimer === null)
+      this.batchTimer = this.clock.setTimeout(() => this.flush(), this.options.batchMs ?? BATCH_MS)
+  }
+
   private flush(): void {
     this.batchTimer = null
     if (this.disabled || this.disposed || this.queue.size === 0) return
-    const changes = [...this.queue.values()].slice(0, MAX_BATCH)
-    this.queue.clear()
+    const batch = [...this.queue].slice(0, MAX_BATCH)
+    for (const [key] of batch) this.queue.delete(key)
+    // Le surplus d'une grosse rafale part au lot suivant : rien n'est perdu.
+    if (this.queue.size > 0) this.scheduleBatch()
 
     const helper = this.helper ?? this.startHelper()
     if (!helper?.stdin) return
     try {
-      helper.stdin.write(`${changes.map(helperLine).join('\n')}\n\n`)
+      helper.stdin.write(`${batch.map(([, change]) => helperLine(change)).join('\n')}\n\n`)
     } catch (error) {
       this.log(`envoi impossible : ${error instanceof Error ? error.message : String(error)}`)
       this.stopHelper()
@@ -155,12 +175,14 @@ export class ShellNotifier {
       if (this.helper !== helper) return
       this.helper = null
       this.clearAck()
+      this.clearIdle()
       this.onStartFailure(error.message)
     })
     helper.once('exit', (code) => {
       if (this.helper !== helper) return
       this.helper = null
       this.clearAck()
+      this.clearIdle()
       if (!this.ready) this.onStartFailure(`code ${code}`)
     })
     return helper
@@ -176,26 +198,56 @@ export class ShellNotifier {
       if (line === 'ready') {
         this.ready = true
         this.startFailures = 0
+        // Démarré : le lot en attente a maintenant le délai ordinaire pour répondre.
+        if (this.ackTimer !== null) {
+          this.clearAck()
+          this.armAck()
+        }
       } else if (line === 'ok') {
         this.awaitingAcks = Math.max(0, this.awaitingAcks - 1)
         this.clearAck()
         if (this.awaitingAcks > 0) this.armAck()
+        else this.armIdle()
       }
     }
   }
 
   private armAck(): void {
-    this.ackTimer = this.clock.setTimeout(() => {
-      this.ackTimer = null
-      // Assistant bloqué (Explorateur figé ?) : arrêté, relancé au prochain lot.
-      this.log('assistant de notification sans réponse : arrêté')
-      this.stopHelper()
-    }, this.options.ackTimeoutMs ?? ACK_TIMEOUT_MS)
+    const starting = !this.ready
+    this.ackTimer = this.clock.setTimeout(
+      () => {
+        this.ackTimer = null
+        this.stopHelper()
+        // Jamais prêt (PowerShell bloqué au chargement, poste saturé) : compté comme un échec
+        // de démarrage, pour finir par abandonner au lieu de relancer sans fin.
+        if (starting) this.onStartFailure('démarrage trop long')
+        // Assistant bloqué (Explorateur figé ?) : arrêté, relancé au prochain lot.
+        else this.log('assistant de notification sans réponse : arrêté')
+      },
+      starting
+        ? (this.options.startTimeoutMs ?? START_TIMEOUT_MS)
+        : (this.options.ackTimeoutMs ?? ACK_TIMEOUT_MS)
+    )
   }
 
   private clearAck(): void {
     if (this.ackTimer !== null) this.clock.clearTimeout(this.ackTimer)
     this.ackTimer = null
+  }
+
+  /** Plus rien à envoyer : l'assistant s'arrêtera s'il reste inoccupé. */
+  private armIdle(): void {
+    this.clearIdle()
+    if (this.queue.size > 0 || this.batchTimer !== null) return
+    this.idleTimer = this.clock.setTimeout(() => {
+      this.idleTimer = null
+      if (this.awaitingAcks === 0 && this.queue.size === 0) this.stopHelper()
+    }, this.options.idleMs ?? IDLE_MS)
+  }
+
+  private clearIdle(): void {
+    if (this.idleTimer !== null) this.clock.clearTimeout(this.idleTimer)
+    this.idleTimer = null
   }
 
   private onStartFailure(reason: string): void {
@@ -212,6 +264,7 @@ export class ShellNotifier {
     const helper = this.helper
     this.helper = null
     this.clearAck()
+    this.clearIdle()
     this.awaitingAcks = 0
     if (!helper) return
     try {

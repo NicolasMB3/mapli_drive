@@ -1,8 +1,9 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { ArrowLeft, Loader2, LogOut } from 'lucide-react'
+import { ArrowLeft, FileText, Loader2, LogOut } from 'lucide-react'
 import type { AppInfo, DriveSettings, DriveState, UpdateStatus } from '@shared/types'
 import { mapli } from '../lib/bridge'
 import { cn } from '../lib/cn'
+import { plural } from '../lib/format'
 
 /*
  * Réglages : le lecteur (lettre, cache), le démarrage, ce poste (organisation, compte,
@@ -146,38 +147,36 @@ export function SettingsScreen({
         <Section title="Lecteur">
           {isMac ? (
             <Row label="Volume « Mapli »" hint="Dans le Finder, sous « Emplacements ».">
-              <span className="text-[12px] text-muted">{state.mountPoint}</span>
+              <span className="text-[12px] text-muted">Mapli</span>
             </Row>
           ) : (
-            <>
-              <Row label="Lettre du lecteur" hint="Le lecteur est remonté sous la nouvelle lettre.">
-                <select
-                  className={selectCls}
-                  value={settings?.mountPoint ?? ''}
-                  onChange={(e) => change({ mountPoint: e.target.value })}
-                >
-                  {letters.map((l) => (
-                    <option key={l} value={l}>
-                      {l}
-                    </option>
-                  ))}
-                </select>
-              </Row>
-              <Row label="Cache local" hint="Fichiers ouverts récemment, gardés sur ce poste.">
-                <select
-                  className={selectCls}
-                  value={settings?.cacheSizeGb ?? 10}
-                  onChange={(e) => change({ cacheSizeGb: Number(e.target.value) })}
-                >
-                  {[5, 10, 20, 50].map((size) => (
-                    <option key={size} value={size}>
-                      {size} Go
-                    </option>
-                  ))}
-                </select>
-              </Row>
-            </>
+            <Row label="Lettre du lecteur" hint="Le lecteur est remonté sous la nouvelle lettre.">
+              <select
+                className={selectCls}
+                value={settings?.mountPoint ?? ''}
+                onChange={(e) => change({ mountPoint: e.target.value })}
+              >
+                {letters.map((l) => (
+                  <option key={l} value={l}>
+                    {l}
+                  </option>
+                ))}
+              </select>
+            </Row>
           )}
+          <Row label="Cache local" hint="Fichiers ouverts récemment, gardés sur ce poste.">
+            <select
+              className={selectCls}
+              value={settings?.cacheSizeGb ?? 10}
+              onChange={(e) => change({ cacheSizeGb: Number(e.target.value) })}
+            >
+              {[5, 10, 20, 50].map((size) => (
+                <option key={size} value={size}>
+                  {size} Go
+                </option>
+              ))}
+            </select>
+          </Row>
         </Section>
 
         <Section title="Démarrage">
@@ -215,6 +214,13 @@ export function SettingsScreen({
               )}
               {confirmUnpair ? 'Confirmer : déconnecter ce poste' : 'Déconnecter ce poste'}
             </button>
+            {confirmUnpair && state.pendingUploads > 0 && (
+              <p className="mt-2 text-[11px] leading-relaxed font-medium text-danger">
+                {plural(state.pendingUploads, 'envoi')} en attente{' '}
+                {state.pendingUploads > 1 ? 'seront abandonnés' : 'sera abandonné'} si vous
+                déconnectez ce poste.
+              </p>
+            )}
             <p className="mt-2 text-[11px] leading-relaxed text-muted">
               Le lecteur disparaît de ce poste ; vos documents restent dans le coffre-fort. Vous
               pouvez aussi déconnecter ce poste depuis app.mapli.fr (Réglages → Sécurité → Appareils
@@ -251,6 +257,18 @@ export function SettingsScreen({
             coffre-fort Mapli dans votre {isMac ? 'Finder' : 'Explorateur'}. Les fichiers sont
             chiffrés sur les serveurs de Mapli, et ce poste n’accède qu’à ce que votre compte peut
             voir.
+          </p>
+          <button
+            type="button"
+            onClick={() => void mapli.openLogs()}
+            className="mt-3 flex h-8 cursor-pointer items-center gap-2 rounded-[4px] border border-input bg-surface px-3 text-[12px] font-medium text-ink transition-colors hover:bg-surface-dim"
+          >
+            <FileText className="h-3.5 w-3.5" />
+            Ouvrir le journal
+          </button>
+          <p className="mt-2 text-[11px] leading-relaxed text-muted">
+            En cas de souci, joignez ce journal à votre demande d’assistance : il ne contient ni mot
+            de passe ni jeton.
           </p>
         </Section>
       </div>

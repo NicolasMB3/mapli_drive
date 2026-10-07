@@ -1,0 +1,210 @@
+name: Bench
+
+# Banc de Mapli Drive : à la main (gh workflow run bench.yml) et à chaque version.
+#  - Windows, lecteur : rclone + WinFsp avec les réglages de l'application (importés de
+#    src/main/rclone-args.ts), contre un serveur WebDAV local — montage, listes, lectures,
+#    écritures, renommages, suppressions, corbeille de l'Explorateur, noms interdits sous
+#    Windows, changements faits ailleurs (vfs/forget), mémoire et processeur de rclone,
+#    assistant de l'Explorateur, messages d'échec. Deux modes : « disque » (réglage actuel)
+#    et « reseau » (--network-mode), pour comparer.
+#  - Windows, installateur : installation silencieuse (WinFsp compris), démarrage de
+#    l'application installée (temps, mémoire), désinstallation.
+#  - macOS, lecteur : rclone nfsmount avec les réglages de l'application (importés de
+#    src/main/rclone-args.ts), contre un serveur WebDAV local derrière un relais commandé
+#    par le banc — montage, opérations de fichiers, changements faits ailleurs, noms
+#    accentués, attributs étendus, et pannes (serveur arrêté, serveur muet, rclone tué).
+#  - macOS : tests, compilation et démarrage de l'application compilée (temps, mémoire).
+# Rien ne touche la production : serveur WebDAV local, adresses de Mapli détournées vers
+# 127.0.0.1. Résultats : résumé de chaque tâche (page du lancement) et artefacts « bench-* »
+# (JSON, journaux de rclone). Mêmes images que build.yml (windows-2025, macos-15) : les
+# mesures restent comparables d'un lancement à l'autre.
+on:
+  workflow_dispatch:
+    inputs:
+      latence_ms:
+        description: Latence ajoutée à chaque requête WebDAV (ms), pour approcher un serveur distant ; 0 = aucune
+        type: string
+        default: '0'
+      options_rclone:
+        description: Options rclone ajoutées au montage, pour un essai (ex. --buffer-size 4M)
+        type: string
+        default: ''
+      installateur:
+        description: Tester aussi l'installateur Windows (une dizaine de minutes)
+        type: boolean
+        default: true
+  push:
+    tags: ['v*']
+    # Sur dev, quand le banc ou les réglages du montage changent (workflow_dispatch ne vise
+    # que les workflows de la branche par défaut).
+    branches: [dev]
+    paths:
+      - .github/workflows/bench.yml
+      - scripts/bench/**
+      - scripts/bench-macos/**
+      - src/main/rclone-args.ts
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bench-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows-lecteur:
+    name: Windows — lecteur (${{ matrix.mode }})
+    runs-on: windows-2025
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [disque, reseau]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: rclone et WinFsp (versions et empreintes de build.yml), WinFsp installé
+        shell: pwsh
+        run: ./scripts/bench/outils.ps1 -RcloneDest "$env:RUNNER_TEMP\outils\rclone.exe" -WinFspMsi "$env:RUNNER_TEMP\outils\winfsp.msi" -InstallWinFsp
+
+      # Les tests propres à Windows (assistant de l'Explorateur réel, tasklist) ne passent
+      # pas dans ci.yml, qui tourne sous Linux.
+      - name: Tests unitaires sous Windows
+        if: matrix.mode == 'disque'
+        shell: bash
+        run: |
+          npm ci
+          node scripts/bench/timed.mjs "Tests unitaires (Windows)" -- npm test
+
+      - name: Banc du lecteur
+        shell: pwsh
+        env:
+          LATENCE_MS: ${{ inputs.latence_ms || '0' }}
+          OPTIONS_RCLONE: ${{ inputs.options_rclone }}
+          MODE: ${{ matrix.mode }}
+        run: >-
+          ./scripts/bench/windows-bench.ps1 -Mode $env:MODE
+          -Rclone "$env:RUNNER_TEMP\outils\rclone.exe" -OutDir "$env:RUNNER_TEMP\bench"
+          -LatencyMs ([int]$env:LATENCE_MS) -ExtraArgs "$env:OPTIONS_RCLONE"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bench-windows-${{ matrix.mode }}
+          if-no-files-found: warn
+          path: |
+            ${{ runner.temp }}/bench/*.json
+            ${{ runner.temp }}/bench/*.md
+            ${{ runner.temp }}/bench/*.log
+
+  windows-installateur:
+    name: Windows — installateur et démarrage
+    if: github.event_name != 'workflow_dispatch' || inputs.installateur
+    runs-on: windows-2025
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: rclone et WinFsp à empaqueter (comme build.yml)
+        shell: pwsh
+        run: ./scripts/bench/outils.ps1 -RcloneDest resources/rclone.exe -WinFspMsi build/winfsp.msi
+
+      - name: Installateur (comme build.yml, sans publication)
+        shell: bash
+        run: |
+          echo '### Windows — construction' >> "$GITHUB_STEP_SUMMARY"
+          node scripts/bench/timed.mjs "Construction de l'installateur" -- npm run package -- --publish never
+
+      - name: Installation, démarrage de l'application installée, désinstallation
+        shell: pwsh
+        run: ./scripts/bench/windows-installer.ps1 -Installer (Get-Item dist/Mapli-Drive-Setup-*.exe).FullName -Rclone resources/rclone.exe -OutDir "$env:RUNNER_TEMP\bench"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bench-windows-installateur
+          if-no-files-found: warn
+          path: ${{ runner.temp }}/bench
+
+  macos-lecteur:
+    name: macOS — lecteur (rclone nfsmount)
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: rclone (version et empreintes de build.yml)
+        run: node scripts/fetch-rclone.mjs
+
+      # Les pannes font afficher « Connexions au serveur interrompues » : personne ne la voit ici.
+      - name: Banc du lecteur
+        env:
+          LATENCE_MS: ${{ inputs.latence_ms || '0' }}
+          OPTIONS_RCLONE: ${{ inputs.options_rclone }}
+        run: >-
+          node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/bench/macos-bench.mjs
+          --rclone resources/rclone --out "$RUNNER_TEMP/bench"
+          --latence "$LATENCE_MS" --options "$OPTIONS_RCLONE"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bench-macos-lecteur
+          if-no-files-found: warn
+          path: ${{ runner.temp }}/bench
+
+  macos:
+    name: macOS — tests, compilation, démarrage
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # Par sécurité : l'application compilée ne cherche pas de mise à jour, et ses adresses
+      # sont déjà détournées vers 127.0.0.1 par app-startup.mjs.
+      - name: Production hors d'atteinte (app.mapli.fr → 127.0.0.1)
+        run: |
+          printf '127.0.0.1 app.mapli.fr\n::1 app.mapli.fr\n' | sudo tee -a /etc/hosts > /dev/null
+          sudo dscacheutil -flushcache
+          sudo killall -HUP mDNSResponder || true
+
+      - name: Tests et compilation
+        run: |
+          echo '### macOS — tests et compilation' >> "$GITHUB_STEP_SUMMARY"
+          node scripts/bench/timed.mjs "Tests unitaires" -- npm test
+          node scripts/bench/timed.mjs "Compilation (electron-vite)" -- npx electron-vite build
+
+      - name: Démarrage de l'application (20 s, sans appairage, deux lancements)
+        run: |
+          mkdir -p "$RUNNER_TEMP/bench"
+          node scripts/bench/app-startup.mjs --duration 20 --runs 2 --out "$RUNNER_TEMP/bench/app-macos.json" --label "macOS, application compilée (non empaquetée)"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bench-macos
+          if-no-files-found: warn
+          path: ${{ runner.temp }}/bench

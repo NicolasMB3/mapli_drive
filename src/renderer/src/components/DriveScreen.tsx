@@ -109,6 +109,23 @@ export function DriveScreen({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4 pt-4 [scrollbar-width:thin]">
+        {state.notice && state.phase === 'connected' && (
+          <div className="mb-3 border border-l-[3px] border-[#F0C9C3] border-l-danger bg-danger-tint px-3 py-2.5">
+            <div className="flex items-start justify-between gap-2">
+              <p className={`${kicker} text-danger`}>Envoi impossible</p>
+              <button
+                type="button"
+                onClick={() => void mapli.drive.dismissNotice()}
+                className="-mr-1 -mt-0.5 cursor-pointer px-1 text-[12px] text-muted hover:text-ink"
+                aria-label="Fermer"
+              >
+                ✕
+              </button>
+            </div>
+            <p className="mt-1 text-[12px] leading-relaxed text-body">{state.notice}</p>
+          </div>
+        )}
+
         {state.error && (state.phase === 'error' || state.phase === 'offline') && (
           <div className="mb-3 border border-l-[3px] border-[#F0C9C3] border-l-danger bg-danger-tint px-3 py-2.5">
             <p className={`${kicker} text-danger`}>

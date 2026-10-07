@@ -14,6 +14,8 @@ export interface MapliApi {
     close: () => void
   }
   info: () => Promise<AppInfo>
+  /** Le dossier du journal de l'application (à joindre à une demande d'assistance). */
+  openLogs: () => Promise<void>
   drive: {
     state: () => Promise<DriveState>
     onState: (callback: (state: DriveState) => void) => () => void

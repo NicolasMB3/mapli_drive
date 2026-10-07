@@ -5,6 +5,7 @@ import { IPC_UPDATER_STATUS } from '../shared/ipc-channels'
 import { jittered } from './backoff'
 import { IS_MAC } from './platform'
 import { WEB_URL } from './config'
+import { log } from './log'
 
 /*
  * Mises à jour automatiques, depuis app.mapli.fr/downloads/drive (latest.yml, déposé par
@@ -38,12 +39,19 @@ export function setupAutoUpdater(windowGetter: () => BrowserWindow | null): void
   autoUpdater.autoInstallOnAppQuit = true
 
   autoUpdater.on('checking-for-update', () => publish({ status: 'checking' }))
-  autoUpdater.on('update-available', (info) =>
+  autoUpdater.on('update-available', (info) => {
+    log.info(`mise à jour disponible : ${info.version}`)
     publish({ status: IS_MAC ? 'available' : 'downloading', version: info.version })
-  )
+  })
   autoUpdater.on('update-not-available', () => publish({ status: 'up-to-date' }))
-  autoUpdater.on('update-downloaded', (info) => publish({ status: 'ready', version: info.version }))
-  autoUpdater.on('error', () => publish({ status: 'error' }))
+  autoUpdater.on('update-downloaded', (info) => {
+    log.info(`mise à jour téléchargée : ${info.version}`)
+    publish({ status: 'ready', version: info.version })
+  })
+  autoUpdater.on('error', (error) => {
+    log.warn('mise à jour', error)
+    publish({ status: 'error' })
+  })
 
   const check = (): void => {
     // Hors ligne : ce sera pour le prochain passage.

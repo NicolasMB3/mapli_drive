@@ -2,7 +2,7 @@ import Store from 'electron-store'
 import { safeStorage } from 'electron'
 import type { DeviceInfo, DriveSettings } from '../shared/types'
 import { UserFacingError } from './errors'
-import { defaultMountPoint } from './platform'
+import { defaultMountPoint, IS_MAC } from './platform'
 import { endpointFrom, type RealtimeEndpoint } from './realtime'
 
 /*
@@ -74,7 +74,8 @@ export function clearDevice(): void {
 export function loadSettings(): DriveSettings {
   const saved = store.get('settings') ?? {}
   return {
-    mountPoint: saved.mountPoint || defaultMountPoint(),
+    // macOS : point de montage fixe (l'ancien « /Volumes/Mapli » du client WebDAV est ignoré).
+    mountPoint: IS_MAC ? defaultMountPoint() : saved.mountPoint || defaultMountPoint(),
     autoStart: saved.autoStart ?? true,
     cacheSizeGb: saved.cacheSizeGb ?? 10
   }

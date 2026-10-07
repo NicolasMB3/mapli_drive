@@ -11,6 +11,7 @@ import { MapliMark } from './Art'
 import { mapli } from '../lib/bridge'
 import { cn } from '../lib/cn'
 import { plural } from '../lib/format'
+import { driveLabel } from '@shared/drive-label'
 
 /*
  * Petite fenêtre de l'espace salariés (charte « Papier », vert des Salariés), en bas à
@@ -75,7 +76,7 @@ export function EmployeeSpacePopup() {
           <MapliMark className="h-[9px] w-auto" />
         </span>
         <span className={cn(kicker, 'flex min-w-0 flex-1 items-center px-3 text-muted')}>
-          Mapli Drive · {state?.mountPoint ?? 'M:'}
+          Mapli Drive · {driveLabel(state?.mountPoint ?? 'M:')}
         </span>
         <button
           type="button"

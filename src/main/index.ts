@@ -1,10 +1,14 @@
 // En premier : une erreur imprévue, même au chargement des modules, s'affiche en français.
 import './crash-dialog'
+// Puis, en développement, le profil à part (avant que session.ts n'ouvre son magasin).
+import './dev-profile'
 import { app, BrowserWindow, ipcMain, screen, shell } from 'electron'
+import { release } from 'os'
 import { join } from 'path'
 import type { DriveSettings, NewEmployeeInput } from '../shared/types'
 import {
   IPC_APP_INFO,
+  IPC_APP_OPEN_LOGS,
   IPC_DRIVE_CANCEL_PAIRING,
   IPC_DRIVE_DISMISS_NOTICE,
   IPC_DRIVE_OPEN,
@@ -36,6 +40,8 @@ import { APP_ID, WEB_URL } from './config'
 import { DriveController } from './controller'
 import { validId, validIds } from './employee-space'
 import { availableDriveLetters, getIconPath, IS_MAC, IS_WIN } from './platform'
+import { log, logDirectory } from './log'
+import { loginItemSettings, migrateLoginItem, openedAtLogin, opensAtLogin } from './login-launch'
 import { isFirstLaunch, markLaunched } from './session'
 import { createTray } from './tray'
 import { checkForUpdates, currentUpdateStatus, installUpdate, setupAutoUpdater } from './updater'
@@ -256,6 +262,9 @@ ipcMain.handle(IPC_APP_INFO, () => ({
   platform: process.platform,
   webUrl: WEB_URL
 }))
+ipcMain.handle(IPC_APP_OPEN_LOGS, async () => {
+  await shell.openPath(logDirectory())
+})
 
 ipcMain.handle(IPC_DRIVE_STATE, () => controller.state)
 ipcMain.handle(IPC_DRIVE_START_PAIRING, () => controller.startPairing())
@@ -320,14 +329,14 @@ function newEmployeeInput(value: unknown): NewEmployeeInput | null {
 
 ipcMain.handle(IPC_SETTINGS_GET, () => ({
   ...controller.getSettings(),
-  autoStart: app.getLoginItemSettings().openAtLogin
+  autoStart: opensAtLogin()
 }))
 ipcMain.handle(IPC_SETTINGS_SET, async (_event, next: Partial<DriveSettings>) => {
   if (typeof next.autoStart === 'boolean' && app.isPackaged) {
-    app.setLoginItemSettings({ openAtLogin: next.autoStart })
+    app.setLoginItemSettings(loginItemSettings(next.autoStart))
   }
   const settings = await controller.setSettings(next)
-  return { ...settings, autoStart: app.getLoginItemSettings().openAtLogin }
+  return { ...settings, autoStart: opensAtLogin() }
 })
 ipcMain.handle(IPC_SETTINGS_MOUNT_POINTS, () =>
   availableDriveLetters(controller.getSettings().mountPoint)
@@ -356,20 +365,25 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(async () => {
     if (IS_WIN) app.setAppUserModelId(APP_ID)
+    log.info(
+      `démarrage — Mapli Drive ${app.getVersion()}, ${process.platform} ${release()} (${process.arch}), Electron ${process.versions.electron}`
+    )
 
     // Lancement au démarrage du poste, une fois, pour l'application installée.
     if (isFirstLaunch()) {
-      if (app.isPackaged) app.setLoginItemSettings({ openAtLogin: true })
+      if (app.isPackaged) app.setLoginItemSettings(loginItemSettings(true))
       markLaunched()
     }
+    migrateLoginItem()
+    const atLogin = await openedAtLogin()
 
     createTray(controller, showWindow, () => controller.showEmployeeSpace())
     setupAutoUpdater(() => mainWindow)
     await controller.init()
 
-    // Premier lancement ou poste non relié : on montre la fenêtre (appairage).
-    if (controller.state.phase === 'unpaired' || !app.getLoginItemSettings().wasOpenedAtLogin)
-      showWindow()
+    // Poste non relié (appairage) ou lancement à la main : la fenêtre s'ouvre ; à
+    // l'ouverture de session, l'application reste discrète.
+    if (controller.state.phase === 'unpaired' || !atLogin) showWindow()
   })
 }
 

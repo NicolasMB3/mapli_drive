@@ -4,6 +4,7 @@ export const IPC_WINDOW_CLOSE = 'window:close'
 
 // Application
 export const IPC_APP_INFO = 'app:info'
+export const IPC_APP_OPEN_LOGS = 'app:openLogs'
 
 // Lecteur
 export const IPC_DRIVE_STATE = 'drive:state'
