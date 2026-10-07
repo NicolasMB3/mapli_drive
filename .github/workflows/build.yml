@@ -95,6 +95,20 @@ jobs:
 
       - run: npm run package:mac -- --publish never
 
+      # La version minimale de macOS vient d'Electron (LSMinimumSystemVersion : 13.0 pour
+      # Electron 44). Un poste plus ancien ne doit pas se voir proposer une version qui ne
+      # démarrerait pas : latest-mac.yml l'annonce, en version du noyau (celle que
+      # electron-updater compare à os.release() : macOS 13 → Darwin 22, macOS 26 → 25).
+      - name: Minimum macOS in the update feed
+        run: |
+          set -euo pipefail
+          minimum="$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "dist/mac-universal/Mapli Drive.app/Contents/Info.plist")"
+          major="${minimum%%.*}"
+          if [ "$major" -ge 26 ]; then darwin=$((major - 1)); else darwin=$((major + 9)); fi
+          echo "minimumSystemVersion: ${darwin}.0.0" >> dist/latest-mac.yml
+          echo "macOS $minimum au minimum → Darwin $darwin"
+          cat dist/latest-mac.yml
+
       - uses: actions/upload-artifact@v4
         with:
           name: macos

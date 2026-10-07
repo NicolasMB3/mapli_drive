@@ -11,6 +11,7 @@ Le coffre-fort [Mapli](https://mapli.fr) dans l’Explorateur Windows et le Find
 - **Mêmes droits que le web** : permissions du membre, dossiers restreints, quotas ; suppression = corbeille (30 jours).
 - **Zone de notification** : état du lecteur (pastille), ouverture du lecteur, pause, coffre-fort sur le web.
 - **Mises à jour automatiques** depuis app.mapli.fr (`/downloads/drive/latest.yml`).
+- **Systèmes** : Windows 10 et 11 (x64), macOS 13 et plus récents (Apple Silicon et Intel), comme Electron 44. Un Mac plus ancien ne se voit pas proposer la mise à jour (`minimumSystemVersion` dans `latest-mac.yml`).
 - **Journal** : `~/Library/Logs/<application>/main.log` (macOS), `%APPDATA%\<application>\logs\main.log` (Windows) — montage, arrêts de rclone, reconnexions, envois refusés ; jamais de token. Bouton « Ouvrir le journal » dans les réglages.
 
 ## Sécurité
