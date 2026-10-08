@@ -1,11 +1,11 @@
 import { spawn, execFile, execFileSync, type ChildProcess } from 'child_process'
 import { randomBytes } from 'crypto'
 import { createReadStream, createWriteStream, existsSync, mkdirSync, writeFileSync } from 'fs'
-import { readdir, readFile, rename, rm, stat, writeFile } from 'fs/promises'
+import { mkdir, readdir, readFile, realpath, rename, rm, stat, writeFile } from 'fs/promises'
 import { pipeline } from 'stream/promises'
 import http from 'http'
 import { createServer } from 'net'
-import { basename, join } from 'path'
+import { basename, dirname, join } from 'path'
 import { app, session } from 'electron'
 import type { Transfer } from '../shared/types'
 import { VOLUME_NAME } from './config'
@@ -43,7 +43,15 @@ import {
 } from './rclone-args'
 import { readLogTail, trimLog } from './rclone-log'
 import { markPidTracking, needsLegacyOrphanSweep } from './session'
-import { EMPTY_QUEUE, summarizeQueue, uploadErrors, type QueueItem } from './upload-queue'
+import { findUnsent, RESCUE_FOLDER, rescueStamp, rescueUnsent } from './cache-rescue'
+import {
+  ancestorDirs,
+  EMPTY_QUEUE,
+  refusalReason,
+  summarizeQueue,
+  uploadErrors,
+  type QueueItem
+} from './upload-queue'
 
 /*
  * Montage du coffre-fort en lecteur, par rclone sur les deux systèmes : cache local des
@@ -101,6 +109,19 @@ const NO_STATS: MountStats = {
 
 /** Fichiers du système effacés au plus par passage (voir discardSystemFiles). */
 const DISCARD_BATCH = 50
+/** Un fichier du système dont l'effacement a échoué est réessayé après ce délai. */
+const DISCARD_RETRY_MS = 5 * 60_000
+/** Dossiers relus de force au plus, par changement (voir invalidate). */
+const REFRESH_MAX = 20
+
+/** Effacement du cache à la déconnexion (voir purgeCache). */
+export interface PurgeResult {
+  /** Fichiers enregistrés sur le poste et pas encore envoyés. */
+  unsent: number
+  /** Ceux qui ont été mis de côté, et où. */
+  rescued: number
+  folder: string | null
+}
 /** Dossiers dont le Finder est invité à relire la fenêtre, au plus, par changement. */
 const FINDER_REFRESH_MAX = 200
 
@@ -177,27 +198,53 @@ const RCLONE_CACHE_PARTS = ['vfs', 'vfsMeta']
 /**
  * Dossier du cache, créé au besoin. Windows : le cache des versions ≤ 3.2 (profil
  * itinérant) est déplacé une fois — il peut contenir des envois en attente, que rclone
- * reprend au montage suivant. Déplacement impossible (autre volume : AppData redirigé) :
- * l'ancien reste utilisé, plutôt que de laisser ces envois en plan.
+ * reprend au montage suivant. Déplacement impossible (autre volume : AppData redirigé,
+ * fichier tenu par un antivirus) : tout reste à l'ancien emplacement, ce qui avait déjà
+ * bougé y revient — données et métadonnées ne doivent jamais être séparées (rclone
+ * effacerait les unes sans les autres, envois en attente compris).
  */
 async function prepareCacheDir(): Promise<string> {
   const cacheDir = rcloneCacheDir()
   mkdirSync(cacheDir, { recursive: true })
   const legacy = legacyRcloneCacheDir()
   if (!IS_WIN || legacy === cacheDir) return cacheDir
-  for (const part of RCLONE_CACHE_PARTS) {
-    const from = join(legacy, part)
-    const to = join(cacheDir, part)
-    if (!existsSync(from) || existsSync(to)) continue
+  const parts = RCLONE_CACHE_PARTS.filter(
+    (part) => existsSync(join(legacy, part)) && !existsSync(join(cacheDir, part))
+  )
+  const moved: string[] = []
+  for (const part of parts) {
     try {
-      await rename(from, to)
-      log.info(`cache de rclone déplacé dans le profil local : ${to}`)
+      await renameWithRetry(join(legacy, part), join(cacheDir, part))
+      moved.push(part)
     } catch (error) {
+      for (const done of moved) {
+        try {
+          await renameWithRetry(join(cacheDir, done), join(legacy, done))
+        } catch (back) {
+          // Moitié ici, moitié là : le nouvel emplacement garde les données déplacées.
+          log.error('cache de rclone partagé entre deux emplacements', back)
+          return cacheDir
+        }
+      }
       log.warn('cache de rclone laissé dans le profil itinérant (déplacement impossible)', error)
       return legacy
     }
   }
+  if (moved.length > 0) log.info(`cache de rclone déplacé dans le profil local : ${cacheDir}`)
   return cacheDir
+}
+
+/** Renommage, réessayé un instant : un antivirus tient parfois un fichier le temps d'un examen. */
+async function renameWithRetry(from: string, to: string): Promise<void> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      await rename(from, to)
+      return
+    } catch (error) {
+      if (attempt >= 3) throw error
+      await sleep(300 * attempt)
+    }
+  }
 }
 
 function freePort(): Promise<number> {
@@ -275,6 +322,13 @@ export class DriveMount {
   private quitting = false
   /** Effacement de fichiers du système refusés en cours (un seul à la fois). */
   private discarding = false
+  /** Fichiers du système déjà effacés (ou tentés) : chemin → heure. */
+  private readonly discarded = new Map<string, number>()
+  /**
+   * Dossiers qui contiennent des envois en attente (et leurs parents, racine comprise) :
+   * rclone n'y oublie pas sa liste (vfs/forget), il faut la relire (vfs/refresh).
+   */
+  private pendingDirs = new Set<string>()
 
   /** Un seul assistant de notification de l'Explorateur pour toute la session (Windows). */
   private readonly notifier = new ShellNotifier({
@@ -349,13 +403,15 @@ export class DriveMount {
       let queue = EMPTY_QUEUE
       if (queued > 0) {
         try {
-          queue = summarizeQueue(
-            (await this.rcPost<{ queue?: QueueItem[] }>('vfs/queue')).queue ?? []
-          )
+          const items = (await this.rcPost<{ queue?: QueueItem[] }>('vfs/queue')).queue ?? []
+          queue = summarizeQueue(items)
+          this.pendingDirs = ancestorDirs(items.map((item) => item.name))
         } catch {
           queue = { ...EMPTY_QUEUE, active: queued, pending: queued }
         }
         if (queue.discard.length > 0) void this.discardSystemFiles(queue.discard)
+      } else {
+        this.pendingDirs = new Set()
       }
       return {
         transfers: (core.transferring ?? []).map((t) => ({
@@ -387,6 +443,27 @@ export class DriveMount {
   }
 
   /**
+   * rclone n'oublie pas la liste d'un dossier qui contient (lui ou un sous-dossier) un envoi
+   * en attente (vfs/forget l'épargne) : un changement fait ailleurs y restait invisible
+   * jusqu'à 10 min (mesuré : un dossier créé à la racine pendant un envoi). Ces dossiers-là
+   * sont relus tout de suite (vfs/refresh, une requête chacun) ; les autres, à leur
+   * prochaine lecture. `changed` null : « tout oublier », la racine et les dossiers en attente.
+   */
+  private async refreshPending(changed: string[] | null): Promise<void> {
+    if (this.pendingDirs.size === 0) return
+    const dirs =
+      changed === null ? [...this.pendingDirs] : changed.filter((d) => this.pendingDirs.has(d))
+    const root = dirs.includes('')
+    const others = dirs.filter((dir) => dir !== '').slice(0, REFRESH_MAX)
+    try {
+      if (root) await this.rcPost('vfs/refresh', {}, 30_000)
+      if (others.length > 0) await this.rcPost('vfs/refresh', forgetParams(others), 30_000)
+    } catch {
+      // Serveur lent ou port de contrôle injoignable : la liste expirera d'elle-même.
+    }
+  }
+
+  /**
    * Fenêtres du Finder à relire (voir invalidate) : nouvelle date pour ces dossiers du
    * lecteur. Par un processus à part, avec un délai : le processus principal ne touche
    * jamais au volume. Un dossier disparu entre-temps est ignoré (-c : rien n'est créé).
@@ -406,30 +483,50 @@ export class DriveMount {
   }
 
   /**
-   * Fichiers du système (.DS_Store, « ._ »…) que le serveur refuse : effacés du lecteur, ce
-   * qui les retire de la file de rclone (voir upload-queue). Par un processus à part sous
-   * macOS, avec un délai : le processus principal ne touche jamais au volume.
+   * Fichiers du système (.DS_Store, « ._ »…) que le serveur refuse (droits, espace plein,
+   * taille : la raison lue dans le journal de rclone) : effacés du lecteur, ce qui les retire
+   * de la file de rclone (voir upload-queue). Un échec passager (coupure, serveur occupé)
+   * n'efface rien : rclone réessaie. Par un processus à part sous macOS, avec un délai, un
+   * par un sous Windows : le processus principal ne bloque jamais sur le volume.
    */
   private async discardSystemFiles(names: string[]): Promise<void> {
     const root = this.mountedPath
     if (!root || this.discarding) return
     this.discarding = true
     try {
-      const paths = names
+      const now = Date.now()
+      for (const [name, at] of this.discarded)
+        if (now - at > DISCARD_RETRY_MS) this.discarded.delete(name)
+      const errors = await this.uploadErrors()
+      const refused = names
+        .filter((name) => !this.discarded.has(name) && refusalReason(errors.get(name)) !== null)
         .slice(0, DISCARD_BATCH)
-        .map((name) =>
-          IS_WIN
-            ? mountPathForOpen(root) + name.split('/').map(explorerName).join('\\')
-            : join(root, name)
-        )
+      if (refused.length === 0) return
+      for (const name of refused) this.discarded.set(name, now)
+      const paths = refused.map((name) =>
+        IS_WIN
+          ? mountPathForOpen(root) + name.split('/').map(explorerName).join('\\')
+          : join(root, name)
+      )
+      let failed = 0
       if (IS_WIN) {
-        await Promise.all(paths.map((path) => rm(path, { force: true }).catch(() => undefined)))
+        for (const path of paths) {
+          try {
+            await rm(path, { force: true })
+          } catch {
+            failed += 1
+          }
+        }
       } else {
-        await new Promise<void>((resolve) =>
-          execFile('/bin/rm', ['-f', '--', ...paths], { timeout: 10_000 }, () => resolve())
+        failed = await new Promise<number>((resolve) =>
+          execFile('/bin/rm', ['-f', '--', ...paths], { timeout: 10_000 }, (error) =>
+            resolve(error ? paths.length : 0)
+          )
         )
       }
-      log.info(`fichiers du système refusés par le serveur, retirés du lecteur : ${paths.length}`)
+      if (failed > 0) log.warn(`fichiers du système refusés : ${failed} non retirés du lecteur`)
+      else
+        log.info(`fichiers du système refusés par le serveur, retirés du lecteur : ${paths.length}`)
     } finally {
       this.discarding = false
     }
@@ -465,6 +562,7 @@ export class DriveMount {
             ...plan.shell.filter((change) => change.event === 'updatedir').map((c) => c.path),
             ...(plan.trash ? [TRASH_FOLDER] : [])
           ]
+      await this.refreshPending(plan.all ? null : changed)
       await this.refreshFinder(path, [...new Set(changed)])
       return
     }
@@ -476,6 +574,7 @@ export class DriveMount {
       } catch {
         // Port de contrôle injoignable : les listes se rafraîchiront d'elles-mêmes (10 min).
       }
+      await this.refreshPending(null)
       const current = await this.topLevelFolders()
       if (current === null) return
       this.notifier.notify(shellChangesFor(root, this.topFolders, current))
@@ -497,6 +596,9 @@ export class DriveMount {
       } catch {
         // idem : le cache des dossiers expire de lui-même.
       }
+      await this.refreshPending(
+        shell.filter((change) => change.event === 'updatedir').map((change) => change.path)
+      )
     }
     this.notifier.notify(shell.map((change) => explorerChange(root, change)))
     this.trackTopFolders(shell)
@@ -523,9 +625,26 @@ export class DriveMount {
    * remote d'une empreinte de sa configuration, token compris) : un nouvel appairage ne le
    * relirait jamais, il resterait sur le disque. Seulement une fois rclone arrêté.
    */
-  async purgeCache(): Promise<void> {
-    if (this.proc) return
-    for (const root of new Set([rcloneCacheDir(), legacyRcloneCacheDir()])) {
+  async purgeCache(): Promise<PurgeResult> {
+    const result: PurgeResult = { unsent: 0, rescued: 0, folder: null }
+    if (this.proc) return result
+    const roots = [...new Set([rcloneCacheDir(), legacyRcloneCacheDir()])]
+    // Fichiers enregistrés mais pas encore envoyés : le cache seul les garde. Mis à l'abri
+    // d'abord ; si l'un d'eux ne peut pas l'être, le cache reste (rien n'est perdu).
+    const unsent = (await Promise.all(roots.map(findUnsent))).flat()
+    if (unsent.length > 0) {
+      result.unsent = unsent.length
+      result.folder = join(app.getPath('documents'), RESCUE_FOLDER, rescueStamp(new Date()))
+      result.rescued = await rescueUnsent(unsent, result.folder)
+      log.warn(
+        `déconnexion : ${result.rescued}/${unsent.length} fichier(s) non envoyé(s) mis de côté dans ${result.folder}`
+      )
+      if (result.rescued < unsent.length) {
+        log.warn('cache gardé : des fichiers non envoyés n’ont pas pu être mis de côté')
+        return result
+      }
+    }
+    for (const root of roots) {
       for (const part of RCLONE_CACHE_PARTS) {
         const dir = join(root, part)
         try {
@@ -535,6 +654,7 @@ export class DriveMount {
         }
       }
     }
+    return result
   }
 
   /** Journal de rclone borné à 10 Mo (vérifié au plus une fois par heure). */
@@ -584,11 +704,11 @@ export class DriveMount {
     }
 
     const deadline = waitForUploads ? Date.now() + UPLOAD_FLUSH_TIMEOUT_MS : 0
-    // Seulement les envois qui avancent : un envoi refusé attendrait les 30 s pour rien
-    // (il repartira au prochain montage, le cache le garde).
+    // Seulement les envois qui avancent : un envoi refusé attendrait les 30 s pour rien (il
+    // repartira au prochain montage, le cache le garde), une lecture en cours aussi.
     while (this.rc && Date.now() < deadline) {
-      const { activeUploads, transfers } = await this.stats()
-      if (activeUploads === 0 && transfers.length === 0) break
+      const { activeUploads } = await this.stats()
+      if (activeUploads === 0) break
       await sleep(500)
     }
 
@@ -693,7 +813,10 @@ export class DriveMount {
       try {
         return await this.mountRclone(request, onExit)
       } catch (error) {
-        // Refus du serveur (poste révoqué…) : le client WebDAV n'y changerait rien.
+        // Refus du serveur (poste révoqué…) : le client WebDAV n'y changerait rien. Arrêt
+        // demandé pendant le montage (fermeture de l'application) : pas de repli non plus,
+        // osascript survivrait à l'application et laisserait un volume orphelin.
+        if (this.quitting) throw error
         if (error instanceof UserFacingError && /refusé|relier|Reliez/i.test(error.message))
           throw error
         log.warn('montage rclone impossible, repli sur le client WebDAV du système', error)
@@ -727,10 +850,17 @@ export class DriveMount {
       // Journal verrouillé (rclone d'une session précédente ?) : il sera raccourci plus tard.
     }
 
+    let mountPoint = request.mountPoint
     if (IS_MAC) {
-      // Dossier du volume : créé au besoin ; un montage resté là (plantage) est retiré.
-      mkdirSync(request.mountPoint, { recursive: true })
-      if (await nfsMounted(request.mountPoint)) await unmountVolume(request.mountPoint, true)
+      // Chemin réel (/tmp → /private/tmp, liens…) : celui de la table des montages, sans
+      // quoi le volume prêt n'était jamais reconnu. Résolu par le dossier parent (local).
+      const parent = dirname(mountPoint)
+      await mkdir(parent, { recursive: true })
+      mountPoint = join(await realpath(parent), basename(mountPoint))
+      // Un montage resté là (plantage) est retiré avant de toucher au dossier : créer le
+      // dossier d'un volume mort figerait le processus principal.
+      if (await nfsMounted(mountPoint)) await unmountVolume(mountPoint, true)
+      await mkdir(mountPoint, { recursive: true })
     }
     if (IS_WIN) {
       // Lettre prise par autre chose (clé USB, lecteur réseau, `subst`) : rclone échouerait,
@@ -753,7 +883,7 @@ export class DriveMount {
     const options: MountOptions = {
       davUrl: request.davUrl,
       token: request.token,
-      mountPoint: request.mountPoint,
+      mountPoint,
       volumeName: VOLUME_NAME,
       rcPort: rc.port,
       rcUser: rc.user,
@@ -775,6 +905,12 @@ export class DriveMount {
     })
     this.proc = proc
     this.rc = rc
+    // rclone introuvable ou refusé (antivirus…) : un échec de montage, pas une exception.
+    let spawnError: Error | null = null
+    proc.once('error', (error) => {
+      spawnError = error
+      log.error('rclone ne démarre pas', error)
+    })
     // Noté pour le nettoyage au prochain démarrage si l'application s'arrêtait brutalement.
     const pid = proc.pid
     if (pid) void recordPid(dir, pid)
@@ -793,23 +929,25 @@ export class DriveMount {
       // macOS : un volume NFS sans son serveur fige tout programme qui le touche — démonté
       // d'office, avant même de remonter.
       if (IS_MAC && path) void this.ensureUnmounted(path)
-      onExit?.(code)
+      // Arrêt demandé (pause, déconnexion, remontage) : rien à signaler, sinon le contrôleur
+      // remonterait aussitôt le lecteur qu'on vient d'arrêter.
+      if (!expected) onExit?.(code)
     })
 
     // Lecteur prêt ? Vérifié sans bloquer le processus principal : la table des montages
     // (macOS), le volume lui-même (Windows : le système de fichiers naissant peut tarder).
-    const root = mountPathForOpen(request.mountPoint)
+    const root = mountPathForOpen(mountPoint)
     const deadline = Date.now() + MOUNT_TIMEOUT_MS
-    while (Date.now() < deadline && proc.exitCode === null) {
+    while (Date.now() < deadline && proc.exitCode === null && !spawnError) {
       await sleep(IS_MAC ? 250 : 400)
-      if (proc.exitCode !== null) break
+      if (proc.exitCode !== null || spawnError) break
       const ready = IS_MAC
-        ? (await nfsMounted(request.mountPoint)) === true
+        ? (await nfsMounted(mountPoint)) === true
         : (await probePath(root, 2_000)) === 'ok'
       if (ready) {
-        this.mountedPath = request.mountPoint
+        this.mountedPath = mountPoint
         this.mountMethod = 'rclone'
-        return request.mountPoint
+        return mountPoint
       }
     }
 
@@ -820,7 +958,7 @@ export class DriveMount {
     }
     this.proc = null
     this.rc = null
-    if (IS_MAC) await this.ensureUnmounted(request.mountPoint)
+    if (IS_MAC) await this.ensureUnmounted(mountPoint)
     const explanation = await this.explainFailure(logFile)
     log.warn(`montage rclone en échec : ${explanation}`)
     throw new UserFacingError(explanation)

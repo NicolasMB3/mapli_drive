@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  ancestorDirs,
   isSystemFile,
   isTemporaryFile,
   refusalNotice,
@@ -83,5 +84,14 @@ describe('file d’envoi de rclone', () => {
     ).toMatch(/^2 fichiers n’ont pas été envoyés, dont « Note\.txt » : l’espace de stockage/)
     expect(refusalNotice(['Clients/Lent.pdf'], errors)).toBeNull()
     expect(refusalNotice([], errors)).toBeNull()
+  })
+
+  it('donne les dossiers qui contiennent des envois en attente, parents et racine compris', () => {
+    expect([...ancestorDirs(['Clients/2026/Devis.pdf', 'Note.txt'])].sort()).toEqual([
+      '',
+      'Clients',
+      'Clients/2026'
+    ])
+    expect(ancestorDirs([]).size).toBe(0)
   })
 })

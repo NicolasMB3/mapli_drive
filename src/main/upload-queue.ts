@@ -68,6 +68,19 @@ export function summarizeQueue(items: QueueItem[]): QueueSummary {
 }
 
 /**
+ * Dossiers qui contiennent ces chemins, parents compris, racine comprise (« ») : ceux dont
+ * rclone garde la liste tant qu'un envoi y attend.
+ */
+export function ancestorDirs(paths: string[]): Set<string> {
+  const dirs = new Set<string>()
+  for (const path of paths) {
+    const parts = path.split('/').filter(Boolean)
+    for (let i = 0; i < parts.length; i++) dirs.add(parts.slice(0, i).join('/'))
+  }
+  return dirs
+}
+
+/**
  * Dernière erreur d'envoi de chaque fichier, d'après le journal de rclone :
  * « ERROR : <chemin>: vfs cache: failed to upload try #N, will retry in …: <erreur> ».
  */

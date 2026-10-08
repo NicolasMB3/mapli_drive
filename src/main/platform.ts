@@ -4,6 +4,7 @@ import { existsSync } from 'fs'
 import { stat } from 'fs/promises'
 import { app } from 'electron'
 import { APP_ID, VOLUME_NAME } from './config'
+import { DEV_PROFILE } from './dev-profile'
 
 export const IS_WIN = process.platform === 'win32'
 export const IS_MAC = process.platform === 'darwin'
@@ -95,6 +96,9 @@ export function defaultMountPoint(): string {
  * alors que le cache peut peser 10 Go et que rclone veut un disque à fichiers creux.
  */
 export function rcloneCacheDir(): string {
+  // Profil de développement : son propre cache — jamais celui de l'application installée
+  // (deux rclone sur un même cache, ou une déconnexion de test qui l'effacerait).
+  if (DEV_PROFILE) return join(app.getPath('userData'), 'rclone-cache')
   if (IS_MAC) return join(homedir(), 'Library', 'Caches', APP_ID, 'rclone')
   const local = process.env.LOCALAPPDATA
   return local ? join(local, basename(app.getPath('userData')), 'cache') : legacyRcloneCacheDir()

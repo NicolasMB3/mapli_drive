@@ -33,6 +33,7 @@ import {
   type Device
 } from './session'
 import { changedKeys } from './state-diff'
+import { rescueNotice } from './cache-rescue'
 import { refusalNotice } from './upload-queue'
 import { statsDelay, uploadsSettled, type UploadSnapshot } from './upload-watch'
 import { frenchOr, toUserMessage, type ErrorContext } from './user-message'
@@ -302,6 +303,8 @@ export class DriveController extends EventEmitter {
     this.clearRetry()
     this.live.stop()
     await this.mount.unmount()
+    // Une reconnexion programmée pendant le démontage déferait la pause.
+    this.clearRetry()
     this.update({ phase: 'paused', mounted: false, transfers: [], pendingUploads: 0 })
   }
 
@@ -315,7 +318,8 @@ export class DriveController extends EventEmitter {
     this.live.stop()
     const token = this.device?.token
     await this.mount.unmount()
-    await this.mount.purgeCache()
+    this.clearRetry()
+    const purge = await this.mount.purgeCache()
     if (token) {
       try {
         await api.disconnect(token)
@@ -323,7 +327,7 @@ export class DriveController extends EventEmitter {
         // Hors ligne : le token reste révocable depuis app.mapli.fr (Appareils connectés).
       }
     }
-    this.forgetDevice(null)
+    this.forgetDevice(rescueNotice(purge.unsent, purge.rescued))
   }
 
   openDrive(): void {
@@ -581,8 +585,17 @@ export class DriveController extends EventEmitter {
     if (!this.device) return
     this.clearRetry()
     this.live.stop()
-    void this.mount.unmount(false).then(() => this.mount.purgeCache())
-    this.forgetDevice('Ce poste a été déconnecté de Mapli. Reliez-le pour retrouver le lecteur.')
+    const notice = 'Ce poste a été déconnecté de Mapli. Reliez-le pour retrouver le lecteur.'
+    void this.mount
+      .unmount(false)
+      .then(() => this.mount.purgeCache())
+      .then((purge) => {
+        const rescued = rescueNotice(purge.unsent, purge.rescued)
+        if (rescued && this.state.phase === 'unpaired')
+          this.update({ notice: `${notice} ${rescued}` })
+      })
+      .catch((error) => log.warn('cache non effacé après la révocation', error))
+    this.forgetDevice(notice)
   }
 
   private forgetDevice(notice: string | null): void {

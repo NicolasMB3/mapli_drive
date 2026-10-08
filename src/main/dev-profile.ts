@@ -9,7 +9,8 @@ import { app } from 'electron'
  * Importé juste après crash-dialog par index.ts : avant que session.ts n'ouvre son magasin.
  */
 const profile = process.env.MAPLI_DRIVE_PROFILE
-export const DEV_PROFILE = !app.isPackaged && Boolean(profile)
+// `app` absent hors d'Electron (tests) : jamais de profil de développement.
+export const DEV_PROFILE = Boolean(profile) && app !== undefined && !app.isPackaged
 
 if (DEV_PROFILE && profile) {
   app.setName('Mapli Drive (développement)')

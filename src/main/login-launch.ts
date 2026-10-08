@@ -31,13 +31,17 @@ export function opensAtLogin(): boolean {
 /**
  * Windows : une entrée de démarrage d'avant (sans l'argument) est remplacée, pour que la
  * fenêtre ne s'ouvre plus à chaque démarrage. Rien à faire si le lancement est désactivé.
+ * Désactivée dans le Gestionnaire des tâches, elle le reste : Electron l'active sinon par
+ * défaut (enabled), et le choix de la personne serait perdu.
  */
 export function migrateLoginItem(): void {
   if (!IS_WIN || !app.isPackaged) return
-  if (app.getLoginItemSettings().openAtLogin && !opensAtLogin()) {
-    app.setLoginItemSettings({ openAtLogin: false })
-    app.setLoginItemSettings(loginItemSettings(true))
-  }
+  const before = app.getLoginItemSettings()
+  if (!before.openAtLogin || opensAtLogin()) return
+  const old = before.launchItems?.find((item) => !item.args?.includes(LOGIN_ARG))
+  const enabled = old?.enabled ?? before.executableWillLaunchAtLogin ?? true
+  app.setLoginItemSettings({ openAtLogin: false })
+  app.setLoginItemSettings({ ...loginItemSettings(true), enabled })
 }
 
 export async function openedAtLogin(): Promise<boolean> {
