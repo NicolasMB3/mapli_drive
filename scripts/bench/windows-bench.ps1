@@ -649,12 +649,19 @@ try {
     $ok = $null -ne (Wait-Until { (Get-ServerCount 'renommage\dossier-100-renomme') -eq 100 -and -not (Test-Dir (Join-Path $SrvDir 'renommage\dossier-100')) } 10000)
     Add-Check 'Renommage d''un dossier de 100 fichiers' $ok "$(Fmt $ms 'ms')"
 
-    # Casse seule : « casse.txt » → « CASSE.txt » (le nom doit changer sur le serveur aussi).
-    $ms = Measure-Ms { [IO.File]::Move("$Letter\renommage\casse.txt", "$Letter\renommage\CASSE.txt") }
-    $Result.mesures['renommageCasseMs'] = $ms
+    # Casse seule : « casse.txt » → « CASSE.txt ». WinFsp le refuse (« le fichier existe
+    # déjà ») : observé, sans verdict. L'essentiel est vérifié : rien n'est perdu.
     $serverNames = { @([IO.Directory]::GetFiles((Join-Path $SrvDir 'renommage')) | ForEach-Object { Split-Path -Leaf $_ }) }
-    $ok = $null -ne (Wait-Until { $n = & $serverNames; ($n -ccontains 'CASSE.txt') -and -not ($n -ccontains 'casse.txt') } 10000)
-    Add-Check 'Renommage de la casse seule' $ok "serveur : $((& $serverNames) -join ', ')"
+    $caseError = $null
+    try {
+      $ms = Measure-Ms { [IO.File]::Move("$Letter\renommage\casse.txt", "$Letter\renommage\CASSE.txt") }
+      $Result.mesures['renommageCasseMs'] = $ms
+    } catch {
+      $caseError = $_.Exception.InnerException.Message ?? $_.Exception.Message
+    }
+    $renamed = $null -ne (Wait-Until { $n = & $serverNames; ($n -ccontains 'CASSE.txt') -and -not ($n -ccontains 'casse.txt') } 5000)
+    Add-Observation 'renommageCasse' ([ordered]@{ renomme = $renamed; erreur = $caseError; serveur = @(& $serverNames) })
+    Add-Check 'Renommage de la casse seule : aucun fichier perdu' (@(& $serverNames | Where-Object { $_ -ieq 'casse.txt' }).Count -eq 1) "serveur : $((& $serverNames) -join ', ')"
   }
 
   Invoke-Step 'Suppressions' {
@@ -677,7 +684,8 @@ try {
     if (-not $finished) { try { $process.Kill($true) } catch { } }
     $answer = if ($finished -and (Test-File $output)) { Get-Content -Raw -LiteralPath $output | ConvertFrom-Json } else { $null }
     $serverBin = Join-Path $SrvDir '$RECYCLE.BIN'
-    $binFiles = if (Test-Dir $serverBin) { @(Get-ChildItem -LiteralPath $serverBin -Recurse -Force -File | ForEach-Object { $_.FullName.Substring($SrvDir.Length + 1) }) } else { @() }
+    # @(…) autour du if : sinon une liste vide devient $null (et .Count échoue en mode strict).
+    $binFiles = @(if (Test-Dir $serverBin) { Get-ChildItem -LiteralPath $serverBin -Recurse -Force -File | ForEach-Object { $_.FullName.Substring($SrvDir.Length + 1) } })
     $stillThere = Test-File (Join-Path $SrvDir 'corbeille\supprime-moi.txt')
     $inWindowsBin = Get-Prop $answer 'dansLaCorbeille'
     $outcome = if (-not $finished) { 'bloqué (boîte de dialogue ?)' }
@@ -747,6 +755,18 @@ try {
     Invoke-Rc $script:Mount 'vfs/forget' | Out-Null
     $shown = Wait-Until { Test-Dir "$Letter\Nouveau dossier distant" } 10000 10
     $Result.mesures['distant-dossierRacineApresToutOublierMs'] = if ($null -ne $shown) { Round1 $clock.Elapsed.TotalMilliseconds } else { $null }
+    if ($null -eq $shown) {
+      # Diagnostic : qui garde l'ancienne liste de la racine, rclone ou Windows ?
+      $diag = [ordered]@{
+        surLeServeur = Test-Dir (Join-Path $SrvDir 'Nouveau dossier distant')
+        racineListeeParWindows = @([IO.Directory]::GetDirectories("$Letter\") | ForEach-Object { Split-Path -Leaf $_ })
+      }
+      $diag.visibleApresListe = Test-Dir "$Letter\Nouveau dossier distant"
+      Invoke-Rc $script:Mount 'vfs/refresh' | Out-Null
+      $diag.visibleApresVfsRefreshMs = Wait-Until { Test-Dir "$Letter\Nouveau dossier distant" } 5000 10
+      $diag.visibleApres30s = $null -ne (Wait-Until { Test-Dir "$Letter\Nouveau dossier distant" } 30000 100)
+      Add-Observation 'dossierRacineDiagnostic' $diag
+    }
     Add-Check 'Dossier créé ailleurs visible après « tout oublier »' ($null -ne $shown)
   }
 

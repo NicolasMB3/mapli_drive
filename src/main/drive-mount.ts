@@ -401,7 +401,8 @@ export class DriveMount {
 
   /** Dernière erreur d'envoi de chaque fichier, d'après la fin du journal de rclone. */
   async uploadErrors(): Promise<Map<string, string>> {
-    return this.logFile ? uploadErrors(await readLogTail(this.logFile)) : new Map()
+    if (!this.logFile) return new Map()
+    return uploadErrors(await readLogTail(this.logFile).catch(() => ''))
   }
 
   /**
