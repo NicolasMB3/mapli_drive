@@ -23,10 +23,18 @@ export function getIconPath(): string {
   return resource(IS_WIN ? 'icon.ico' : 'icon.png')
 }
 
-/** Icône de la zone de notification ; `variant` = pastille d'état (Windows). */
-export function getTrayIconPath(variant?: 'ok' | 'busy' | 'error'): string {
-  if (IS_MAC) return resource('tray-iconTemplate.png')
-  return resource(variant ? `tray-${variant}.png` : 'tray-icon.png')
+/** État de l'icône de barre (kit de marque 1.2, 17-mapli-drive) : il se lit dans le trait. */
+export type TrayState = 'a-jour' | 'en-cours' | 'en-pause' | 'hors-ligne' | 'erreur'
+
+/**
+ * Icône de la zone de notification (Windows : un `.ico` de 16 à 48 px par état, jeu clair ou
+ * sombre selon la barre des tâches) ou de la barre des menus (macOS : image « modèle » 16 px et
+ * @2x, que le système teinte). `image` : l'image de l'animation « en cours » (1 à 8).
+ */
+export function getTrayIconPath(state: TrayState, image = 1, dark = false): string {
+  const name = state === 'en-cours' ? `en-cours-${image}` : state
+  if (IS_MAC) return resource(join('tray', 'macos', `mapli-${name}-16Template.png`))
+  return resource(join('tray', dark ? 'windows-sombre' : 'windows-clair', `barre-${name}.ico`))
 }
 
 /** Assistant de notification de l'Explorateur (script PowerShell livré avec l'application). */

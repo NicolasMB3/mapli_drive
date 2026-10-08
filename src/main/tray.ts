@@ -1,27 +1,51 @@
-import { Menu, Tray, app, nativeImage, type MenuItemConstructorOptions } from 'electron'
+import {
+  Menu,
+  Tray,
+  app,
+  nativeImage,
+  nativeTheme,
+  type MenuItemConstructorOptions
+} from 'electron'
 import { driveLabel } from '../shared/drive-label'
 import type { DriveState } from '../shared/types'
 import { PRODUCT_NAME } from './config'
 import { pendingCount } from './employee-space'
-import { getTrayIconPath, IS_MAC } from './platform'
+import { getTrayIconPath, IS_MAC, type TrayState } from './platform'
 import { menuSignature } from './state-diff'
 import type { DriveController } from './controller'
 
 /*
- * Icône de la zone de notification : le M de Mapli, avec une pastille d'état (vert
- * monté, orange en cours ou en pause, rouge hors ligne ou en erreur), et un menu court.
- * Les variantes sont des images (1× et 2×, nettes sur les écrans haute densité) ; sous
- * macOS, l'icône « Template » suit le thème de la barre des menus, sans pastille.
+ * Icône de la zone de notification (Windows) et de la barre des menus (macOS), du kit de
+ * marque 1.2 (17-mapli-drive) : pas de pastille qui morde le signe, l'état se lit dans le
+ * trait — orange (à jour), qui balance d'une inclinaison à l'autre (en cours : 8 images de
+ * 120 ms), dédoublé comme deux barres (en pause), tout le signe effacé (hors ligne), point
+ * d'exclamation (erreur, rouge sous Windows). Windows : le jeu clair ou sombre selon la
+ * barre des tâches, qui peut changer en cours de route ; macOS : images « modèles », que le
+ * système teinte lui-même. Et un menu court.
  */
 
-const VARIANT: Record<string, 'ok' | 'busy' | 'error' | null> = {
-  connected: 'ok',
-  connecting: 'busy',
-  pairing: 'busy',
-  paused: 'busy',
-  offline: 'error',
-  error: 'error',
-  unpaired: null
+const IMAGES_EN_COURS = 8
+const DUREE_IMAGE_MS = 120
+
+/** L'état montré par l'icône. */
+export function trayState(state: DriveState): TrayState {
+  switch (state.phase) {
+    case 'connected':
+      if (state.notice) return 'erreur'
+      return state.transfers.length > 0 || state.pendingUploads > 0 ? 'en-cours' : 'a-jour'
+    case 'connecting':
+    case 'pairing':
+      return 'en-cours'
+    case 'paused':
+      return 'en-pause'
+    case 'offline':
+    case 'unpaired':
+      return 'hors-ligne'
+    case 'error':
+      return 'erreur'
+    default:
+      return 'a-jour'
+  }
 }
 
 export function createTray(
@@ -29,18 +53,46 @@ export function createTray(
   showWindow: () => void,
   showEmployeeSpace: () => void
 ): Tray {
-  const base = nativeImage.createFromPath(getTrayIconPath())
-  const icons = new Map<string, Electron.NativeImage>()
-  const iconFor = (phase: string): Electron.NativeImage => {
-    const variant = VARIANT[phase] ?? null
-    if (!variant || IS_MAC) return base
-    if (!icons.has(variant))
-      icons.set(variant, nativeImage.createFromPath(getTrayIconPath(variant)))
-    return icons.get(variant)!
+  // Images chargées une fois chacune (état, image de l'animation, thème de la barre des tâches).
+  const images = new Map<string, Electron.NativeImage>()
+  const imageOf = (etat: TrayState, image: number): Electron.NativeImage => {
+    const dark = !IS_MAC && nativeTheme.shouldUseDarkColorsForSystemIntegratedUI
+    const key = `${etat}-${image}-${dark}`
+    let img = images.get(key)
+    if (!img) {
+      img = nativeImage.createFromPath(getTrayIconPath(etat, image, dark))
+      images.set(key, img)
+    }
+    return img
   }
 
-  const tray = new Tray(base)
+  const tray = new Tray(imageOf(trayState(controller.state), 1))
   tray.setToolTip(PRODUCT_NAME)
+
+  // L'état de l'icône, et l'animation « en cours » (seulement tant qu'elle dure).
+  let etat = trayState(controller.state)
+  let image = 1
+  let animation: NodeJS.Timeout | null = null
+  const montre = (): void => tray.setImage(imageOf(etat, image))
+  const changeEtat = (suivant: TrayState): void => {
+    if (suivant === etat) return
+    etat = suivant
+    image = 1
+    if (animation) clearInterval(animation)
+    animation = null
+    montre()
+    if (etat === 'en-cours') {
+      animation = setInterval(() => {
+        image = (image % IMAGES_EN_COURS) + 1
+        montre()
+      }, DUREE_IMAGE_MS)
+      animation.unref()
+    }
+  }
+  // Barre des tâches passée du clair au sombre (ou l'inverse) : l'autre jeu d'icônes.
+  nativeTheme.on('updated', () => {
+    if (!IS_MAC && !tray.isDestroyed()) montre()
+  })
 
   const label = (state: DriveState): string => {
     switch (state.phase) {
@@ -65,14 +117,10 @@ export function createTray(
   }
 
   // Ce qui est affiché : l'icône, son infobulle et son menu ne sont refaits que s'ils changent.
-  const shown = { icon: '', tooltip: '', menu: '' }
+  const shown = { tooltip: '', menu: '' }
 
   const refresh = (state: DriveState): void => {
-    const icon = IS_MAC ? 'base' : (VARIANT[state.phase] ?? 'base')
-    if (icon !== shown.icon) {
-      tray.setImage(iconFor(state.phase))
-      shown.icon = icon
-    }
+    changeEtat(trayState(state))
     const tooltip = `${PRODUCT_NAME} — ${label(state)}`
     if (tooltip !== shown.tooltip) {
       tray.setToolTip(tooltip)
@@ -127,6 +175,11 @@ export function createTray(
     }
   }
 
+  // État initial « en cours » : l'animation part tout de suite.
+  if (etat === 'en-cours') {
+    etat = 'a-jour'
+    changeEtat('en-cours')
+  }
   refresh(controller.state)
   controller.on('state', refresh)
   tray.on('click', showWindow)
