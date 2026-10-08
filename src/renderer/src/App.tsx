@@ -5,6 +5,7 @@ import { PairingScreen } from './components/PairingScreen'
 import { DriveScreen } from './components/DriveScreen'
 import { SettingsScreen } from './components/SettingsScreen'
 import { EmployeeSpacePopup } from './components/EmployeeSpacePopup'
+import { MapliLoader } from './components/Brand'
 import { mapli } from './lib/bridge'
 
 /**
@@ -26,7 +27,13 @@ function MainWindow() {
     return mapli.drive.onState(setState)
   }, [])
 
-  if (!state) return <div className="h-full bg-ink" />
+  // Le temps que le processus principal donne l'état : le chargement de la marque, s'il dure.
+  if (!state)
+    return (
+      <div className="grid h-full place-items-center bg-ink">
+        <MapliLoader tone="sombre" size={64} delayed />
+      </div>
+    )
 
   const paired = state.device !== null && state.phase !== 'unpaired' && state.phase !== 'pairing'
 

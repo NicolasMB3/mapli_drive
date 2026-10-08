@@ -4,7 +4,8 @@
 
 /*
  * Charte « Papier » de Mapli : encre #121212, papier blanc, filets, angles vifs,
- * surtitres en capitales mono ; le violet est celui du Coffre-fort.
+ * surtitres en capitales mono ; le violet est celui du Coffre-fort. Les composants de la
+ * marque (signe, bouton, chargement) sont dans components/brand.css.
  */
 @theme {
   --font-sans: 'Geist Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
@@ -56,20 +57,6 @@ body {
   -webkit-app-region: no-drag;
 }
 
-/* Attente : trois cases qui s'allument tour à tour. */
-@keyframes cell {
-  0%,
-  100% {
-    opacity: 0.25;
-  }
-  40% {
-    opacity: 1;
-  }
-}
-.cell {
-  animation: cell 1.2s ease-in-out infinite;
-}
-
 /* Envoi en cours : la flèche de l'étiquette d'un fichier monte, encore et encore. */
 @keyframes lift {
   0% {
@@ -89,7 +76,6 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .cell,
   .lift {
     animation: none;
   }

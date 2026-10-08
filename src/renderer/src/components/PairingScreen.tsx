@@ -1,17 +1,17 @@
 import { useEffect, useState } from 'react'
-import { ExternalLink, Loader2, Lock, RotateCcw } from 'lucide-react'
+import { Lock } from 'lucide-react'
 import type { DriveState } from '@shared/types'
-import { CoffreCloseUp } from './Art'
+import { CoffreIllustration } from './Art'
+import { MapliButton, MapliLoader } from './Brand'
 import { mapli } from '../lib/bridge'
 
 /*
  * Relier le poste (direction « Bandeau ») : un bandeau d'encre, le code MAPL-XXXX sur
- * une plaque blanche, l'approbation sur app.mapli.fr, le gros plan violet en pied.
+ * une plaque blanche, l'approbation sur app.mapli.fr, l'illustration violette du
+ * Coffre-fort en pied. Boutons de la marque en version papier (sur fond noir).
  */
 
 const kicker = 'font-mono text-[11px] uppercase tracking-[0.06em]'
-const whiteButton =
-  'flex h-10 w-full cursor-pointer items-center justify-center gap-2 rounded-[4px] bg-white text-[13px] font-medium text-ink transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60'
 
 function useCountdown(until: number | undefined): string {
   const [now, setNow] = useState(() => Date.now())
@@ -31,6 +31,8 @@ export function PairingScreen({ state }: { state: DriveState }) {
   const pairing = state.pairing
   const waiting = state.phase === 'pairing' && pairing?.status === 'waiting'
   const countdown = useCountdown(waiting ? pairing?.expiresAt : undefined)
+  // Demande du code en cours : le trait du bouton saute (le bouton ignore alors les clics).
+  const requesting = busy || (state.phase === 'pairing' && !pairing)
 
   const start = async () => {
     setBusy(true)
@@ -66,21 +68,18 @@ export function PairingScreen({ state }: { state: DriveState }) {
                 {pairing.code}
               </span>
             </div>
-            <button
-              type="button"
-              onClick={() => mapli.drive.openVerification()}
-              className={`${whiteButton} mt-3`}
-            >
-              <ExternalLink className="h-4 w-4" />
+            <MapliButton clair wide onClick={() => mapli.drive.openVerification()} className="mt-3">
               Ouvrir app.mapli.fr
-            </button>
-            <div className="mt-4 flex items-center justify-between gap-3 text-[12px] text-white/60">
-              <span className="flex items-center gap-2">
-                <span className="inline-flex gap-[3px]" aria-hidden="true">
-                  <span className="cell h-[6px] w-[6px] bg-coffre" />
-                  <span className="cell h-[6px] w-[6px] bg-coffre [animation-delay:0.2s]" />
-                  <span className="cell h-[6px] w-[6px] bg-coffre [animation-delay:0.4s]" />
-                </span>
+            </MapliButton>
+            <div className="mt-5 flex items-center justify-between gap-3 text-[12px] text-white/60">
+              <span className="flex items-center gap-3">
+                {/* Le haut de la boîte sert au saut du trait : le signe s'aligne sur le texte. */}
+                <MapliLoader
+                  tone="sombre"
+                  size={48}
+                  label="En attente de votre accord"
+                  className="-mt-4"
+                />
                 En attente de votre accord…
               </span>
               <span className="font-mono text-[11px] uppercase tracking-[0.06em]">{countdown}</span>
@@ -107,19 +106,16 @@ export function PairingScreen({ state }: { state: DriveState }) {
                 {state.error}
               </p>
             )}
-            <button
-              type="button"
+            <MapliButton
+              clair
+              wide
               onClick={start}
-              disabled={busy || state.phase === 'pairing'}
-              className={`${whiteButton} mt-5`}
+              loading={requesting}
+              disabled={!requesting && state.phase === 'pairing'}
+              className="mt-5"
             >
-              {busy || (state.phase === 'pairing' && !pairing) ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : pairing ? (
-                <RotateCcw className="h-4 w-4" />
-              ) : null}
-              {pairing ? 'Nouveau code' : 'Relier ce poste'}
-            </button>
+              {requesting ? 'Demande du code…' : pairing ? 'Nouveau code' : 'Relier ce poste'}
+            </MapliButton>
             <ol className="mt-6 space-y-0 text-[12px] text-white/70">
               {[
                 'Un code s’affiche ici',
@@ -137,7 +133,7 @@ export function PairingScreen({ state }: { state: DriveState }) {
       </div>
 
       <div className="relative min-h-[120px] flex-1 overflow-hidden bg-coffre">
-        <CoffreCloseUp className="absolute inset-0 h-full w-full" />
+        <CoffreIllustration align="xMidYMax" className="absolute inset-0 h-full w-full" />
       </div>
       <p className="flex shrink-0 items-center gap-2 border-t border-line bg-surface-dim px-4 py-2.5 text-[12px] text-muted">
         <Lock className="h-3.5 w-3.5" />

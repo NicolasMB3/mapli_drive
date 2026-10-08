@@ -1,15 +1,8 @@
-import {
-  ArrowUpRight,
-  ExternalLink,
-  Folder,
-  Loader2,
-  Pause,
-  Play,
-  RotateCcw,
-  Settings
-} from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { Folder, Pause, Settings } from 'lucide-react'
 import type { AppInfo, DriveState } from '@shared/types'
-import { CoffreCloseUp } from './Art'
+import { CoffreVignette } from './Art'
+import { MapliButton, MapliLink } from './Brand'
 import { DropIllustration, FileSheet } from './FileArt'
 import { mapli } from '../lib/bridge'
 import { cn } from '../lib/cn'
@@ -17,9 +10,9 @@ import { baseName, formatBytes, formatRelative, plural } from '../lib/format'
 
 /*
  * Le lecteur (direction « Bandeau ») : bandeau d'encre (organisation, lecteur, état)
- * prolongé du gros plan violet, le bouton d'encre pour ouvrir le lecteur, la jauge
- * d'espace, puis ce qui se passe (envois en cours, fichiers récemment ajoutés), chaque
- * fichier dessiné en feuille selon son type.
+ * prolongé de la vignette violette du Coffre-fort, le bouton de la marque pour ouvrir le
+ * lecteur, la jauge d'espace, puis ce qui se passe (envois en cours, fichiers récemment
+ * ajoutés), chaque fichier dessiné en feuille selon son type.
  */
 
 const kicker = 'font-mono text-[11px] uppercase tracking-[0.06em]'
@@ -43,6 +36,27 @@ function status(state: DriveState): { label: string; tone: string } {
   }
 }
 
+/**
+ * Lecteur prêt après une connexion (« Connexion… » → connecté) : le trait du bouton devient
+ * coche, un instant (2,4 s, comme le kit).
+ */
+function useJustConnected(phase: DriveState['phase']): boolean {
+  const previous = useRef(phase)
+  const [justConnected, setJustConnected] = useState(false)
+  useEffect(() => {
+    const was = previous.current
+    previous.current = phase
+    if (was !== 'connecting' || phase !== 'connected') {
+      setJustConnected(false)
+      return
+    }
+    setJustConnected(true)
+    const timer = setTimeout(() => setJustConnected(false), 2400)
+    return () => clearTimeout(timer)
+  }, [phase])
+  return justConnected
+}
+
 export function DriveScreen({
   state,
   info,
@@ -60,31 +74,19 @@ export function DriveScreen({
   const percent = limited
     ? Math.min(100, Math.round((storage.usedBytes / storage.limitBytes) * 100))
     : 0
+  const justConnected = useJustConnected(state.phase)
 
   const primary =
     state.phase === 'connected'
       ? {
           text: isMac ? 'Ouvrir dans le Finder' : `Ouvrir le lecteur ${state.mountPoint}`,
-          icon: <ExternalLink className="h-4 w-4" />,
           onClick: () => mapli.drive.open()
         }
       : state.phase === 'paused'
-        ? {
-            text: 'Reprendre',
-            icon: <Play className="h-4 w-4" />,
-            onClick: () => mapli.drive.resume()
-          }
+        ? { text: 'Reprendre', onClick: () => mapli.drive.resume() }
         : state.phase === 'connecting'
-          ? {
-              text: 'Connexion…',
-              icon: <Loader2 className="h-4 w-4 animate-spin" />,
-              onClick: undefined
-            }
-          : {
-              text: 'Réessayer',
-              icon: <RotateCcw className="h-4 w-4" />,
-              onClick: () => mapli.drive.resume()
-            }
+          ? { text: 'Connexion…', onClick: undefined }
+          : { text: 'Réessayer', onClick: () => mapli.drive.resume() }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -104,7 +106,7 @@ export function DriveScreen({
           </p>
         </div>
         <div className="relative overflow-hidden bg-coffre">
-          <CoffreCloseUp align="xMinYMid" className="absolute inset-0 h-full w-full" />
+          <CoffreVignette slice className="absolute inset-0 h-full w-full" />
         </div>
       </div>
 
@@ -135,24 +137,17 @@ export function DriveScreen({
           </div>
         )}
 
-        <button
-          type="button"
+        <MapliButton
+          wide
           onClick={primary.onClick}
-          disabled={!primary.onClick}
-          className="flex h-10 w-full cursor-pointer items-center justify-center gap-2 rounded-[4px] bg-ink text-[13px] font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-wait disabled:opacity-80"
+          loading={!primary.onClick}
+          success={state.phase === 'connected' && justConnected}
         >
-          {primary.icon}
           {primary.text}
-        </button>
+        </MapliButton>
 
-        <div className="mt-2 flex items-center justify-between text-[12px]">
-          <button
-            type="button"
-            onClick={() => mapli.drive.openWeb()}
-            className="flex cursor-pointer items-center gap-1 text-ink underline decoration-ink/25 underline-offset-[3px] hover:decoration-ink"
-          >
-            Coffre-fort sur le web <ArrowUpRight className="h-3 w-3" />
-          </button>
+        <div className="mt-1.5 flex items-center justify-between text-[12px]">
+          <MapliLink onClick={() => mapli.drive.openWeb()}>Coffre-fort sur le web</MapliLink>
           {state.phase === 'connected' && (
             <button
               type="button"
@@ -197,14 +192,9 @@ export function DriveScreen({
               </p>
             )}
             {limited && percent >= 80 && (
-              <button
-                type="button"
-                onClick={() => mapli.drive.openWeb('storage')}
-                className="mt-1.5 flex cursor-pointer items-center gap-1 text-[12px] font-medium text-ink underline decoration-ink/25 underline-offset-[3px] hover:decoration-ink"
-              >
-                {percent >= 100 ? 'Coffre plein : augmenter l’espace' : 'Augmenter l’espace'}{' '}
-                <ArrowUpRight className="h-3 w-3" />
-              </button>
+              <MapliLink onClick={() => mapli.drive.openWeb('storage')} className="mt-0.5">
+                {percent >= 100 ? 'Coffre plein : augmenter l’espace' : 'Augmenter l’espace'}
+              </MapliLink>
             )}
           </div>
         )}

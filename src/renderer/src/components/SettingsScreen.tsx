@@ -1,13 +1,15 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { ArrowLeft, FileText, Loader2, LogOut } from 'lucide-react'
+import { ArrowLeft, Loader2, LogOut } from 'lucide-react'
 import type { AppInfo, DriveSettings, DriveState, UpdateStatus } from '@shared/types'
+import { MapliButton } from './Brand'
 import { mapli } from '../lib/bridge'
 import { cn } from '../lib/cn'
 import { plural } from '../lib/format'
 
 /*
  * Réglages : le lecteur (lettre, cache), le démarrage, ce poste (organisation, compte,
- * déconnexion), les mises à jour. En-tête clair, sections à filets.
+ * déconnexion), les mises à jour. En-tête clair, sections à filets ; boutons de la marque
+ * au format bureau (la vérification des mises à jour fait sauter le trait, puis montre la coche).
  */
 
 const kicker = 'font-mono text-[11px] uppercase tracking-[0.06em]'
@@ -117,6 +119,8 @@ export function SettingsScreen({
     setUnpairing(false)
     onBack()
   }
+
+  const updateBusy = update.status === 'checking' || update.status === 'downloading'
 
   const updateAction = () => {
     if (update.status === 'ready' || (update.status === 'available' && isMac))
@@ -230,25 +234,18 @@ export function SettingsScreen({
         )}
 
         <Section title="Mises à jour">
-          <button
-            type="button"
+          <MapliButton
+            size="petit"
+            variant={update.status === 'ready' ? 'principal' : 'secondaire'}
             onClick={updateAction}
-            disabled={update.status === 'checking' || update.status === 'downloading'}
-            className={cn(
-              'flex h-8 cursor-pointer items-center gap-2 rounded-[4px] px-3 text-[12px] font-medium transition-opacity disabled:cursor-wait disabled:opacity-70',
-              update.status === 'ready'
-                ? 'bg-ink text-white hover:opacity-90'
-                : 'border border-input bg-surface text-ink hover:bg-surface-dim'
-            )}
+            loading={updateBusy}
+            success={update.status === 'up-to-date'}
           >
-            {(update.status === 'checking' || update.status === 'downloading') && (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            )}
             {UPDATE_LABEL[update.status]}
             {update.version && (update.status === 'ready' || update.status === 'available')
               ? ` (v${update.version})`
               : ''}
-          </button>
+          </MapliButton>
         </Section>
 
         <Section title="À propos">
@@ -258,14 +255,14 @@ export function SettingsScreen({
             chiffrés sur les serveurs de Mapli, et ce poste n’accède qu’à ce que votre compte peut
             voir.
           </p>
-          <button
-            type="button"
+          <MapliButton
+            size="petit"
+            variant="secondaire"
             onClick={() => void mapli.openLogs()}
-            className="mt-3 flex h-8 cursor-pointer items-center gap-2 rounded-[4px] border border-input bg-surface px-3 text-[12px] font-medium text-ink transition-colors hover:bg-surface-dim"
+            className="mt-3"
           >
-            <FileText className="h-3.5 w-3.5" />
             Ouvrir le journal
-          </button>
+          </MapliButton>
           <p className="mt-2 text-[11px] leading-relaxed text-muted">
             En cas de souci, joignez ce journal à votre demande d’assistance : il ne contient ni mot
             de passe ni jeton.

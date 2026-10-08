@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { Check, Loader2, Mail, X } from 'lucide-react'
+import { Mail, X } from 'lucide-react'
 import type {
   DriveState,
   EmployeeSpaceGroup,
@@ -7,7 +7,8 @@ import type {
   EmployeeSpaceSeats,
   SpaceResult
 } from '@shared/types'
-import { MapliMark } from './Art'
+import { SalariesVignette } from './Art'
+import { MapliButton, MapliCheck, Sign } from './Brand'
 import { mapli } from '../lib/bridge'
 import { cn } from '../lib/cn'
 import { plural } from '../lib/format'
@@ -21,16 +22,16 @@ import { driveLabel } from '@shared/drive-label'
  *    cet accord ;
  *  - après la création d'un dossier dans M:\Espace salariés : créer l'espace salarié de la
  *    personne (sa fiche, son accès), dans la limite des places de l'offre.
+ * Boutons de la marque au format bureau : le trait saute pendant l'envoi, puis la
+ * confirmation montre le trait devenu coche.
  */
 
 const kicker = 'font-mono text-[11px] uppercase tracking-[0.06em]'
 const field =
   'h-8 w-full rounded-[3px] border border-input bg-surface px-2.5 text-[13px] text-ink outline-none transition-colors placeholder:text-muted focus:border-ink'
-const primary =
-  'inline-flex h-9 flex-1 cursor-pointer items-center justify-center gap-2 rounded-[3px] bg-ink px-3 text-[13px] font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50'
-const secondary =
-  'inline-flex h-9 cursor-pointer items-center justify-center rounded-[3px] border border-input px-3 text-[13px] font-medium text-ink transition-colors hover:bg-surface-dim disabled:cursor-not-allowed disabled:opacity-50'
 const quiet = 'cursor-pointer underline-offset-4 hover:text-ink hover:underline'
+/** Vignette Salariés du kit, en haut à droite des propositions. */
+const vignette = 'w-16 shrink-0 rounded-[4px]'
 
 function firstName(name: string): string {
   return name.split(' ')[0] || name
@@ -73,7 +74,7 @@ export function EmployeeSpacePopup() {
     <div ref={root} className="flex flex-col border border-line bg-surface">
       <div className="drag flex h-9 shrink-0 items-stretch border-b border-line">
         <span className="grid w-10 shrink-0 place-items-center border-r border-line">
-          <MapliMark className="h-[9px] w-auto" />
+          <Sign className="w-5" />
         </span>
         <span className={cn(kicker, 'flex min-w-0 flex-1 items-center px-3 text-muted')}>
           Mapli Drive · {driveLabel(state?.mountPoint ?? 'M:')}
@@ -90,10 +91,8 @@ export function EmployeeSpacePopup() {
       </div>
 
       {flash ? (
-        <div className="flex items-start gap-3 px-4 py-4">
-          <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-success-tint text-success-ink">
-            <Check className="h-4 w-4" />
-          </span>
+        <div className="flex items-center gap-3 px-4 py-4">
+          <MapliCheck className="shrink-0" />
           <p className="text-[13px] leading-snug text-ink">{flash}</p>
         </div>
       ) : prompt?.kind === 'publish' ? (
@@ -126,27 +125,33 @@ function PublishPrompt({
   onDone: (r: SpaceResult) => void
 }) {
   const [notify, setNotify] = useState(true)
-  const [busy, setBusy] = useState(false)
+  // Action en cours : le bouton principal ne montre l'attente que pour la publication.
+  const [busy, setBusy] = useState<'publish' | 'discard' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const name = group.employee?.name ?? 'le salarié'
   const ids = group.requests.map((r) => r.id)
   const shown = group.requests.slice(0, 4)
 
-  const run = async (action: () => Promise<SpaceResult>) => {
-    setBusy(true)
+  const run = async (kind: 'publish' | 'discard', action: () => Promise<SpaceResult>) => {
+    setBusy(kind)
     setError(null)
     const result = await action()
-    setBusy(false)
+    setBusy(null)
     if (result.ok) onDone(result)
     else setError(result.message)
   }
 
   return (
     <div className="px-4 pb-4 pt-3.5">
-      <p className={cn(kicker, 'text-success-ink')}>Espace salariés</p>
-      <p className="mt-1 text-[15px] font-semibold leading-snug tracking-[-0.01em] text-ink">
-        {plural(group.requests.length, 'document')} pour {name}
-      </p>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className={cn(kicker, 'text-success-ink')}>Espace salariés</p>
+          <p className="mt-1 text-[15px] font-semibold leading-snug tracking-[-0.01em] text-ink">
+            {plural(group.requests.length, 'document')} pour {name}
+          </p>
+        </div>
+        <SalariesVignette className={vignette} />
+      </div>
       <ul className="mt-2.5 space-y-0.5 border-l-2 border-success pl-2.5 text-[13px] text-body">
         {shown.map((r) => (
           <li key={r.id} className="truncate">
@@ -176,23 +181,23 @@ function PublishPrompt({
       {error && <p className="mt-2 text-[12px] text-danger">{error}</p>}
 
       <div className="mt-3 flex gap-2">
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => void run(() => mapli.space.publish(ids, notify))}
-          className={primary}
+        <MapliButton
+          size="petit"
+          loading={busy === 'publish'}
+          disabled={busy === 'discard'}
+          onClick={() => void run('publish', () => mapli.space.publish(ids, notify))}
+          className="flex-1"
         >
-          {busy && <Loader2 className="h-4 w-4 animate-spin" />}
-          Publier dans son espace
-        </button>
-        <button
-          type="button"
-          disabled={busy}
+          {busy === 'publish' ? 'Publication…' : 'Publier dans son espace'}
+        </MapliButton>
+        <MapliButton
+          size="petit"
+          variant="secondaire"
+          disabled={busy !== null}
           onClick={() => void mapli.space.later()}
-          className={secondary}
         >
           Plus tard
-        </button>
+        </MapliButton>
       </div>
       <p className="mt-2.5 text-[11.5px] leading-snug text-muted">
         Rien n’arrive chez {firstName(name)} sans votre accord ·{' '}
@@ -206,9 +211,9 @@ function PublishPrompt({
         ·{' '}
         <button
           type="button"
-          disabled={busy}
+          disabled={busy !== null}
           className={quiet}
-          onClick={() => void run(() => mapli.space.discard(ids))}
+          onClick={() => void run('discard', () => mapli.space.discard(ids))}
         >
           Ne pas publier
         </button>
@@ -253,15 +258,16 @@ function FolderPrompt({
   const [line1, setLine1] = useState('')
   const [postal, setPostal] = useState('')
   const [city, setCity] = useState('')
-  const [busy, setBusy] = useState(false)
+  // Action en cours : le bouton principal ne montre l'attente que pour la création.
+  const [busy, setBusy] = useState<'create' | 'keep' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const full = seats ? !seats.can_create : false
 
-  const run = async (action: () => Promise<SpaceResult>) => {
-    setBusy(true)
+  const run = async (kind: 'create' | 'keep', action: () => Promise<SpaceResult>) => {
+    setBusy(kind)
     setError(null)
     const result = await action()
-    setBusy(false)
+    setBusy(null)
     if (result.ok) onDone(result)
     else setError(result.message)
   }
@@ -274,7 +280,7 @@ function FolderPrompt({
     if (anyAddress && (!line1.trim() || !/^\d{5}$/.test(postal.trim()) || !city.trim())) {
       return setError('Adresse : rue, code postal à 5 chiffres et ville.')
     }
-    void run(() =>
+    void run('create', () =>
       mapli.space.createEmployee(folder.id, {
         first_name: first.trim(),
         last_name: last.trim(),
@@ -289,10 +295,15 @@ function FolderPrompt({
 
   return (
     <div className="px-4 pb-4 pt-3.5">
-      <p className={cn(kicker, 'text-success-ink')}>Espace salariés</p>
-      <p className="mt-1 text-[15px] font-semibold leading-snug tracking-[-0.01em] text-ink">
-        Nouveau dossier « {folder.name} »
-      </p>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className={cn(kicker, 'text-success-ink')}>Espace salariés</p>
+          <p className="mt-1 text-[15px] font-semibold leading-snug tracking-[-0.01em] text-ink">
+            Nouveau dossier « {folder.name} »
+          </p>
+        </div>
+        <SalariesVignette className={vignette} />
+      </div>
       <p className="mt-1 text-[12.5px] leading-snug text-body">
         Créer son espace salarié ? Il recevra un e-mail pour l’activer, et ce dossier deviendra le
         sien.
@@ -381,26 +392,32 @@ function FolderPrompt({
 
       <div className="mt-3 flex gap-2">
         {!full && (
-          <button type="button" disabled={busy} onClick={submit} className={primary}>
-            {busy && <Loader2 className="h-4 w-4 animate-spin" />}
-            Créer son espace
-          </button>
+          <MapliButton
+            size="petit"
+            loading={busy === 'create'}
+            disabled={busy === 'keep'}
+            onClick={submit}
+            className="flex-1"
+          >
+            {busy === 'create' ? 'Création…' : 'Créer son espace'}
+          </MapliButton>
         )}
-        <button
-          type="button"
-          disabled={busy}
+        <MapliButton
+          size="petit"
+          variant="secondaire"
+          disabled={busy !== null}
           onClick={() => void mapli.space.later()}
-          className={cn(secondary, full && 'flex-1')}
+          className={cn(full && 'flex-1')}
         >
           Plus tard
-        </button>
+        </MapliButton>
       </div>
       <p className="mt-2.5 text-[11.5px] leading-snug text-muted">
         <button
           type="button"
-          disabled={busy}
+          disabled={busy !== null}
           className={quiet}
-          onClick={() => void run(() => mapli.space.keepFolder(folder.id))}
+          onClick={() => void run('keep', () => mapli.space.keepFolder(folder.id))}
         >
           Garder un simple dossier
         </button>{' '}

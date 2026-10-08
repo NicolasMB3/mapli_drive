@@ -1,5 +1,5 @@
 import { Minus, Settings, X } from 'lucide-react'
-import { MapliMark } from './Art'
+import { Sign } from './Brand'
 import { mapli } from '../lib/bridge'
 import { cn } from '../lib/cn'
 
@@ -8,7 +8,7 @@ const IS_MAC = typeof navigator !== 'undefined' && /Macintosh|Mac OS X/.test(nav
 
 /**
  * Barre de titre, charte « Papier », comme la barre du haut de app.mapli.fr : des cases à
- * filets — le M de Mapli, le nom et la pastille du Coffre-fort, les réglages. Sous Windows
+ * filets — le signe de Mapli, le nom et la pastille du Coffre-fort, les réglages. Sous Windows
  * (fenêtre sans cadre), la réduction et la fermeture à l'encre ; sous macOS, les boutons
  * ronds du système, à gauche, à qui la barre laisse leur place.
  */
@@ -30,7 +30,7 @@ export function Titlebar({
           IS_MAC ? 'border-x' : 'border-r'
         )}
       >
-        <MapliMark className="h-[10px] w-auto" />
+        <Sign className="w-5" />
       </span>
       <span className="flex min-w-0 items-center gap-2 px-3">
         <span className="truncate text-[12px] font-medium tracking-[-0.01em] text-ink">
