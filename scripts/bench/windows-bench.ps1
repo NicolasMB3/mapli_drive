@@ -750,12 +750,13 @@ try {
     Add-Check 'Fichier supprimé ailleurs disparu après vfs/forget' ($null -ne $gone)
 
     # Nouveau dossier à la racine, « tout oublier » (plan « all » de l'application). rclone
-    # n'oublie pas la liste d'un dossier qui contient un envoi en attente (la racine, dès
-    # qu'un envoi attend quelque part) : l'application la relit alors (vfs/refresh), comme ici.
+    # épingle la liste d'un dossier qui contient un envoi en attente ou un fichier créé et
+    # encore ouvert (la racine, dès qu'il y en a un quelque part) : l'application fait alors
+    # relire la racine par « file=.mapli-relire » (invalidation.ts, relistParams), comme ici.
     Invoke-Dav 'MKCOL' 'Nouveau dossier distant'
     $clock.Restart()
     Invoke-Rc $script:Mount 'vfs/forget' | Out-Null
-    if ((Get-PendingUploads $script:Mount) -gt 0) { Invoke-Rc $script:Mount 'vfs/refresh' | Out-Null }
+    Invoke-Rc $script:Mount 'vfs/forget' @{ file = '.mapli-relire' } | Out-Null
     $shown = Wait-Until { Test-Dir "$Letter\Nouveau dossier distant" } 10000 10
     $Result.mesures['distant-dossierRacineApresToutOublierMs'] = if ($null -ne $shown) { Round1 $clock.Elapsed.TotalMilliseconds } else { $null }
     if ($null -eq $shown) {

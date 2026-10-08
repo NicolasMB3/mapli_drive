@@ -11,7 +11,7 @@ import type { Transfer } from '../shared/types'
 import { VOLUME_NAME } from './config'
 import { UserFacingError } from './errors'
 import { helperArgs, ShellNotifier } from './explorer-notify'
-import { forgetParams, TRASH_FOLDER, type InvalidationPlan } from './invalidation'
+import { forgetParams, relistParams, TRASH_FOLDER, type InvalidationPlan } from './invalidation'
 import { log, since } from './log'
 import { findWebdavMount, nfsMounted, webdavMounted } from './mac-mounts'
 import {
@@ -111,8 +111,6 @@ const NO_STATS: MountStats = {
 const DISCARD_BATCH = 50
 /** Un fichier du système dont l'effacement a échoué est réessayé après ce délai. */
 const DISCARD_RETRY_MS = 5 * 60_000
-/** Dossiers relus de force au plus, par changement (voir invalidate). */
-const REFRESH_MAX = 20
 
 /** Effacement du cache à la déconnexion (voir purgeCache). */
 export interface PurgeResult {
@@ -326,7 +324,7 @@ export class DriveMount {
   private readonly discarded = new Map<string, number>()
   /**
    * Dossiers qui contiennent des envois en attente (et leurs parents, racine comprise) :
-   * rclone n'y oublie pas sa liste (vfs/forget), il faut la relire (vfs/refresh).
+   * rclone y épingle sa liste (voir relistParams), à faire relire même pour « tout oublier ».
    */
   private pendingDirs = new Set<string>()
 
@@ -443,24 +441,18 @@ export class DriveMount {
   }
 
   /**
-   * rclone n'oublie pas la liste d'un dossier qui contient (lui ou un sous-dossier) un envoi
-   * en attente (vfs/forget l'épargne) : un changement fait ailleurs y restait invisible
-   * jusqu'à 10 min (mesuré : un dossier créé à la racine pendant un envoi). Ces dossiers-là
-   * sont relus tout de suite (vfs/refresh, une requête chacun) ; les autres, à leur
-   * prochaine lecture. `changed` null : « tout oublier », la racine et les dossiers en attente.
+   * Oubli de rclone : sous-arbres des dossiers touchés (dir=), et relecture des dossiers dont
+   * le contenu a changé (file=, voir relistParams) — sans elle, un dossier qui contient un
+   * envoi en attente (la racine, dès qu'un envoi attend quelque part) gardait sa liste
+   * jusqu'à 10 min. « Tout oublier » : la racine et les dossiers des envois en attente.
    */
-  private async refreshPending(changed: string[] | null): Promise<void> {
-    if (this.pendingDirs.size === 0) return
-    const dirs =
-      changed === null ? [...this.pendingDirs] : changed.filter((d) => this.pendingDirs.has(d))
-    const root = dirs.includes('')
-    const others = dirs.filter((dir) => dir !== '').slice(0, REFRESH_MAX)
-    try {
-      if (root) await this.rcPost('vfs/refresh', {}, 30_000)
-      if (others.length > 0) await this.rcPost('vfs/refresh', forgetParams(others), 30_000)
-    } catch {
-      // Serveur lent ou port de contrôle injoignable : la liste expirera d'elle-même.
+  private async forget(all: boolean, dirs: string[], changed: string[]): Promise<void> {
+    if (all) {
+      await this.rcPost('vfs/forget')
+      await this.rcPost('vfs/forget', relistParams(['', ...this.pendingDirs]))
+      return
     }
+    await this.rcPost('vfs/forget', { ...forgetParams(dirs), ...relistParams(changed) })
   }
 
   /**
@@ -550,31 +542,31 @@ export class DriveMount {
       const dirs = [...plan.dirs, ...(plan.trash ? [TRASH_FOLDER] : [])]
       // Sans dossier nommé, « vfs/forget » oublierait tout : seulement si c'est demandé.
       if (!plan.all && dirs.length === 0) return
+      const changed = plan.all
+        ? ['']
+        : [
+            ...new Set([
+              ...plan.shell.filter((change) => change.event === 'updatedir').map((c) => c.path),
+              ...(plan.trash ? [TRASH_FOLDER] : [])
+            ])
+          ]
       try {
-        await this.rcPost('vfs/forget', plan.all ? {} : forgetParams(dirs))
+        await this.forget(plan.all, dirs, changed)
       } catch {
         // Port de contrôle injoignable : les listes se rafraîchiront d'elles-mêmes (10 min).
         return
       }
-      const changed = plan.all
-        ? ['']
-        : [
-            ...plan.shell.filter((change) => change.event === 'updatedir').map((c) => c.path),
-            ...(plan.trash ? [TRASH_FOLDER] : [])
-          ]
-      await this.refreshPending(plan.all ? null : changed)
-      await this.refreshFinder(path, [...new Set(changed)])
+      await this.refreshFinder(path, changed)
       return
     }
     const root = mountPathForOpen(path)
 
     if (plan.all) {
       try {
-        await this.rcPost('vfs/forget')
+        await this.forget(true, [], [''])
       } catch {
         // Port de contrôle injoignable : les listes se rafraîchiront d'elles-mêmes (10 min).
       }
-      await this.refreshPending(null)
       const current = await this.topLevelFolders()
       if (current === null) return
       this.notifier.notify(shellChangesFor(root, this.topFolders, current))
@@ -592,13 +584,14 @@ export class DriveMount {
     }
     if (dirs.length > 0) {
       try {
-        await this.rcPost('vfs/forget', forgetParams(dirs))
+        await this.forget(
+          false,
+          dirs,
+          shell.filter((change) => change.event === 'updatedir').map((change) => change.path)
+        )
       } catch {
         // idem : le cache des dossiers expire de lui-même.
       }
-      await this.refreshPending(
-        shell.filter((change) => change.event === 'updatedir').map((change) => change.path)
-      )
     }
     this.notifier.notify(shell.map((change) => explorerChange(root, change)))
     this.trackTopFolders(shell)

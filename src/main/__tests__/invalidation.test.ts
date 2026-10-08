@@ -10,6 +10,8 @@ import {
   parseDriveChanged,
   planForFolders,
   planForTreeChange,
+  RELIST_MARKER,
+  relistParams,
   emptyPlan
 } from '../invalidation'
 
@@ -177,6 +179,17 @@ describe('plan prêt à appliquer', () => {
       dir: 'Clients',
       dir2: 'Archives/2025',
       dir3: 'Corbeille'
+    })
+  })
+
+  it('relecture des dossiers changés, racine comprise (file=<dossier>/<repère>, même épinglés)', () => {
+    expect(relistParams(['', 'Clients/2026'])).toEqual({
+      file: RELIST_MARKER,
+      file2: `Clients/2026/${RELIST_MARKER}`
+    })
+    expect({ ...forgetParams(['Clients']), ...relistParams(['Clients']) }).toEqual({
+      dir: 'Clients',
+      file: `Clients/${RELIST_MARKER}`
     })
   })
 

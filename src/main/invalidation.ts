@@ -225,6 +225,26 @@ export function finalizePlan(
   return { all: false, dirs, trash: plan.trash, shell }
 }
 
+/**
+ * Nom (sans fichier réel derrière) qui fait relire la liste d'un dossier : « vfs/forget
+ * file=<dossier>/<nom> » invalide la liste du dossier parent, même quand rclone l'épingle
+ * — « dir=<dossier> » épargne la liste d'un dossier qui contient un fichier en cours
+ * d'envoi, ou créé et encore ouvert (Windows). Rien n'est relu sur-le-champ : seulement au
+ * prochain accès.
+ */
+export const RELIST_MARKER = '.mapli-relire'
+
+/** Paramètres de vfs/forget qui font relire ces dossiers (« » : la racine) : file, file2… */
+export function relistParams(dirs: string[]): Record<string, string> {
+  const params: Record<string, string> = {}
+  dirs.forEach((dir, index) => {
+    params[index === 0 ? 'file' : `file${index + 1}`] = dir
+      ? `${dir}/${RELIST_MARKER}`
+      : RELIST_MARKER
+  })
+  return params
+}
+
 /** Paramètres de vfs/forget : dir, dir2, dir3… (une clé par dossier). */
 export function forgetParams(dirs: string[]): Record<string, string> {
   const params: Record<string, string> = {}
