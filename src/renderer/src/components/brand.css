@@ -1,6 +1,7 @@
 /*
- * Composants de marque du kit Mapli (DS MAPLI/design, version 1.1 du 8 octobre 2026), repris
- * tels quels : indicateur de chargement (04-animations/chargement) et bouton (16-boutons).
+ * Composants de marque du kit Mapli (DS MAPLI, versions 1.1 et 1.2 du 8 octobre 2026), repris
+ * tels quels : indicateur de chargement (04-animations/chargement), bouton (16-boutons), et
+ * de la 1.2 le bouton destructif et le message d'erreur.
  * Les valeurs (durées, courbes, distances) sont celles du kit, seule la mise en forme est
  * celle de Prettier : ne pas les retoucher ici ; ce que Mapli Drive y ajoute est à la fin,
  * dans « Adaptations ».
@@ -385,6 +386,78 @@
   color: #121212;
 }
 
+/* destructif (kit 1.2) : réservé aux actions qu'on ne peut pas défaire (supprimer, déconnecter, résilier) */
+.mapli-btn__croix {
+  opacity: 0;
+  stroke-dasharray: 1 1.3;
+  stroke-dashoffset: 1;
+  transform-origin: 11px 11px;
+  transform: rotate(45deg) scaleX(0.8);
+  transition:
+    stroke-dashoffset 0.2s ease 0.1s,
+    opacity 0.01s linear 0.1s;
+}
+.mapli-btn--destructif {
+  background: #c8372d;
+  color: #ffffff;
+}
+.mapli-btn--destructif .mapli-btn__icone {
+  stroke: #ffffff;
+  transition:
+    transform 0.28s cubic-bezier(0.3, 1.4, 0.5, 1),
+    stroke 0.2s ease;
+}
+.mapli-btn--destructif:focus-visible {
+  outline-color: #c8372d;
+}
+.mapli-btn--destructif:hover .mapli-btn__trait {
+  transform: rotate(-45deg) scaleX(0.8);
+}
+.mapli-btn--destructif:hover .mapli-btn__pointe {
+  opacity: 0;
+  stroke-dashoffset: 1;
+}
+.mapli-btn--destructif:hover .mapli-btn__croix {
+  opacity: 1;
+  stroke-dashoffset: 0;
+}
+.mapli-btn--destructif:hover .mapli-btn__icone {
+  transform: none;
+}
+.mapli-btn--destructif.mapli-btn--secondaire {
+  background: transparent;
+  color: #c8372d;
+  box-shadow: inset 0 0 0 1.5px #c8372d;
+}
+.mapli-btn--destructif.mapli-btn--secondaire .mapli-btn__icone {
+  stroke: #c8372d;
+}
+.mapli-btn--destructif.mapli-btn--secondaire::before {
+  background: #c8372d;
+}
+.mapli-btn--destructif.mapli-btn--secondaire:hover {
+  color: #ffffff;
+}
+.mapli-btn--destructif.mapli-btn--secondaire:hover .mapli-btn__icone {
+  stroke: #ffffff;
+}
+
+/* messages d'erreur (texte rouge foncé sur rouge clair) */
+.mapli-erreur {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  box-sizing: border-box;
+  padding: 10px 14px;
+  border-radius: 4px;
+  background: #f8e1de;
+  color: #a12a22;
+  font-family: 'Geist', 'Inter', system-ui, sans-serif;
+  font-size: 13.5px;
+  line-height: 1.4;
+}
+
 /* inactif */
 .mapli-btn[disabled],
 .mapli-btn[aria-disabled='true'] {
@@ -404,6 +477,11 @@
 }
 .mapli-btn[disabled] .mapli-btn__pointe,
 .mapli-btn[aria-disabled='true'] .mapli-btn__pointe {
+  opacity: 0;
+  stroke-dashoffset: 1;
+}
+.mapli-btn[disabled] .mapli-btn__croix,
+.mapli-btn[aria-disabled='true'] .mapli-btn__croix {
   opacity: 0;
   stroke-dashoffset: 1;
 }

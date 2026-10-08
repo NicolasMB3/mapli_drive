@@ -110,6 +110,7 @@ function Trait() {
           <path className="mapli-btn__trait" d="M3,11H19" />
           <path className="mapli-btn__pointe" pathLength={1} d="M13.4,5.4L19,11L13.4,16.6" />
           <path className="mapli-btn__coche" pathLength={1} d="M8.27,17.14L3.5,12.3" />
+          <path className="mapli-btn__croix" pathLength={1} d="M3,11H19" />
         </g>
       </g>
     </svg>
@@ -118,8 +119,12 @@ function Trait() {
 
 type ButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'children'> & {
   children: ReactNode
-  /** `secondaire` : contour, le noir entre en biais au survol. */
-  variant?: 'principal' | 'secondaire'
+  /**
+   * `secondaire` : contour, le noir entre en biais au survol. `destructif` (kit 1.2) : rouge,
+   * le trait blanc devient × au survol ; `destructif-secondaire` : en contour rouge. Le rouge
+   * est réservé à ce qu'on ne peut pas défaire (déconnecter ce poste).
+   */
+  variant?: 'principal' | 'secondaire' | 'destructif' | 'destructif-secondaire'
   /** Sur fond noir : le bouton passe au papier. */
   clair?: boolean
   /** 36 px (bureau), 48 px (par défaut). */
@@ -158,7 +163,10 @@ export function MapliButton({
       onClick={loading ? undefined : onClick}
       className={cn(
         'mapli-btn',
-        variant === 'secondaire' && 'mapli-btn--secondaire',
+        (variant === 'secondaire' || variant === 'destructif-secondaire') &&
+          'mapli-btn--secondaire',
+        (variant === 'destructif' || variant === 'destructif-secondaire') &&
+          'mapli-btn--destructif',
         clair && 'mapli-btn--clair',
         size === 'petit' && 'mapli-btn--petit',
         wide && 'mapli-btn--large',

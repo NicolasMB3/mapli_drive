@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { ArrowLeft, Loader2, LogOut } from 'lucide-react'
+import { ArrowLeft } from 'lucide-react'
 import type { AppInfo, DriveSettings, DriveState, UpdateStatus } from '@shared/types'
 import { MapliButton } from './Brand'
 import { mapli } from '../lib/bridge'
@@ -111,7 +111,6 @@ export function SettingsScreen({
   const unpair = async () => {
     if (!confirmUnpair) {
       setConfirmUnpair(true)
-      setTimeout(() => setConfirmUnpair(false), 4000)
       return
     }
     setUnpairing(true)
@@ -205,25 +204,51 @@ export function SettingsScreen({
                 {state.device.user.email}
               </p>
             </div>
-            <button
-              type="button"
-              onClick={unpair}
-              disabled={unpairing}
-              className="mt-3 flex h-8 cursor-pointer items-center gap-2 rounded-[4px] border border-danger/30 bg-surface px-3 text-[12px] font-medium text-danger transition-colors hover:bg-danger/5 disabled:opacity-60"
-            >
-              {unpairing ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <LogOut className="h-3.5 w-3.5" />
-              )}
-              {confirmUnpair ? 'Confirmer : déconnecter ce poste' : 'Déconnecter ce poste'}
-            </button>
-            {confirmUnpair && state.pendingUploads > 0 && (
-              <p className="mt-2 text-[11px] leading-relaxed font-medium text-danger">
-                {plural(state.pendingUploads, 'envoi')} en attente{' '}
-                {state.pendingUploads > 1 ? 'seront abandonnés' : 'sera abandonné'} si vous
-                déconnectez ce poste.
-              </p>
+            {/* Déconnecter : une action qu'on ne défait pas (il faudra un nouveau code), d'où le
+                bouton destructif du kit 1.2 ; la confirmation met « Annuler » à gauche,
+                « Déconnecter » à droite. */}
+            {confirmUnpair ? (
+              <div className="mt-3 border border-line bg-surface px-3 py-3">
+                <p className="text-[13px] font-semibold text-ink">Déconnecter ce poste ?</p>
+                <p className="mt-1 text-[12px] leading-relaxed text-body">
+                  Les fichiers restent dans le coffre-fort. Il faudra un nouveau code pour relier ce
+                  poste.
+                </p>
+                {state.pendingUploads > 0 && (
+                  <p className="mapli-erreur mt-2 min-h-0 px-2.5 py-2 text-[12px]">
+                    {plural(state.pendingUploads, 'envoi')} en attente{' '}
+                    {state.pendingUploads > 1 ? 'seront abandonnés' : 'sera abandonné'} : attendez
+                    qu’ils partent si vous voulez les garder.
+                  </p>
+                )}
+                <div className="mt-3 flex justify-end gap-2">
+                  <MapliButton
+                    size="petit"
+                    variant="secondaire"
+                    onClick={() => setConfirmUnpair(false)}
+                    disabled={unpairing}
+                  >
+                    Annuler
+                  </MapliButton>
+                  <MapliButton
+                    size="petit"
+                    variant="destructif"
+                    onClick={unpair}
+                    loading={unpairing}
+                  >
+                    {unpairing ? 'Déconnexion…' : 'Déconnecter'}
+                  </MapliButton>
+                </div>
+              </div>
+            ) : (
+              <MapliButton
+                size="petit"
+                variant="destructif-secondaire"
+                onClick={unpair}
+                className="mt-3"
+              >
+                Déconnecter ce poste
+              </MapliButton>
             )}
             <p className="mt-2 text-[11px] leading-relaxed text-muted">
               Le lecteur disparaît de ce poste ; vos documents restent dans le coffre-fort. Vous

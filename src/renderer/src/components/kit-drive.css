@@ -1,0 +1,396 @@
+/*
+ * Animations du kit de marque 1.2 (DS MAPLI/15-illustrations) pour les dessins de DriveArt.tsx,
+ * recopiées telles quelles : l'en-tête Mapli Drive (en-tetes/mapli-en-tetes.css) et la vignette
+ * « Drive vide » (vignettes/mapli-vignettes-suite.css). Seules adaptations : la police de
+ * l'application, et la taille de la vignette donnée par sa boîte.
+ */
+.mapli-en-tete {
+  display: block;
+  font-family: 'Geist Variable', Geist, Inter, system-ui, sans-serif;
+}
+.mapli-vignette {
+  display: block;
+  height: auto;
+  border-radius: 6px;
+  overflow: hidden;
+  font-family: 'Geist Variable', Geist, Inter, system-ui, sans-serif;
+}
+.mapli-mono {
+  font-family: 'Geist Mono', ui-monospace, Menlo, monospace;
+}
+/* Mapli Drive */
+.mapli-anime .mapli-et-dr-all {
+  transform-origin: 240px 135px;
+  animation: mapli-et-dr-all 6s linear infinite;
+}
+.mapli-anime .mapli-et-dr-lp {
+  animation: mapli-et-dr-lp 6s linear infinite;
+}
+.mapli-anime .mapli-et-dr-cd {
+  transform-origin: 246px 135px;
+  animation: mapli-et-dr-cd 6s linear infinite;
+}
+.mapli-anime .mapli-et-dr-ty {
+  animation: mapli-et-dr-ty 6s linear infinite;
+}
+.mapli-anime .mapli-et-dr-cu {
+  animation: mapli-et-dr-cu 6s linear infinite;
+}
+.mapli-anime .mapli-et-dr-ok {
+  transform-origin: 132px 2px;
+  animation: mapli-et-dr-ok 6s linear infinite;
+}
+.mapli-anime .mapli-et-dr-l1 {
+  animation: mapli-et-dr-l1 6s linear infinite;
+}
+.mapli-anime .mapli-et-dr-l2 {
+  animation: mapli-et-dr-l2 6s linear infinite;
+}
+.mapli-anime .mapli-et-dr-tl {
+  transform-origin: 391px 133px;
+  animation: mapli-et-dr-tl 6s linear infinite;
+}
+.mapli-anime .mapli-et-dr-d1,
+.mapli-anime .mapli-et-dr-d2 {
+  offset-path: path('M92,96C150,22 330,22 391,94');
+  offset-rotate: 0deg;
+}
+.mapli-anime .mapli-et-dr-d1 {
+  animation: mapli-et-dr-d1 6s linear infinite;
+}
+.mapli-anime .mapli-et-dr-d2 {
+  animation: mapli-et-dr-d2 6s linear infinite;
+}
+.mapli-anime .mapli-et-dr-pl {
+  transform-origin: 250px 214px;
+  animation: mapli-et-dr-pl 6s linear infinite;
+}
+@keyframes mapli-et-dr-all {
+  0%,
+  88% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  95%,
+  100% {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+@keyframes mapli-et-dr-lp {
+  0% {
+    transform: translateY(200px);
+    animation-timing-function: cubic-bezier(0.15, 0.6, 0.35, 1);
+  }
+  11% {
+    transform: translateY(-5px);
+    animation-timing-function: ease-in-out;
+  }
+  14%,
+  100% {
+    transform: translateY(0);
+  }
+}
+@keyframes mapli-et-dr-cd {
+  0%,
+  11% {
+    transform: scale(0);
+    animation-timing-function: cubic-bezier(0.15, 0.6, 0.35, 1);
+  }
+  16% {
+    transform: scale(1.08);
+    animation-timing-function: ease-in-out;
+  }
+  18.5%,
+  100% {
+    transform: scale(1);
+  }
+}
+@keyframes mapli-et-dr-ty {
+  0%,
+  20% {
+    transform: translateX(0);
+    animation-timing-function: steps(9, end);
+  }
+  34%,
+  100% {
+    transform: translateX(104px);
+  }
+}
+@keyframes mapli-et-dr-cu {
+  0%,
+  18.5% {
+    opacity: 0;
+  }
+  18.6%,
+  34.5% {
+    opacity: 1;
+  }
+  34.6%,
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes mapli-et-dr-ok {
+  0%,
+  35% {
+    transform: scale(0);
+    animation-timing-function: cubic-bezier(0.15, 0.6, 0.35, 1);
+  }
+  39% {
+    transform: scale(1.2);
+    animation-timing-function: ease-in-out;
+  }
+  41.5%,
+  100% {
+    transform: scale(1);
+  }
+}
+@keyframes mapli-et-dr-l1 {
+  0%,
+  36% {
+    opacity: 0;
+  }
+  40%,
+  100% {
+    opacity: 1;
+  }
+}
+@keyframes mapli-et-dr-l2 {
+  0%,
+  39% {
+    opacity: 0;
+  }
+  43%,
+  100% {
+    opacity: 1;
+  }
+}
+@keyframes mapli-et-dr-tl {
+  0%,
+  40% {
+    transform: scale(0);
+    animation-timing-function: cubic-bezier(0.15, 0.6, 0.35, 1);
+  }
+  45% {
+    transform: scale(1.1);
+    animation-timing-function: ease-in-out;
+  }
+  47.5%,
+  61.5% {
+    transform: scale(1);
+    animation-timing-function: ease-out;
+  }
+  63% {
+    transform: scale(1.07);
+    animation-timing-function: ease-in-out;
+  }
+  65%,
+  67.5% {
+    transform: scale(1);
+    animation-timing-function: ease-out;
+  }
+  69% {
+    transform: scale(1.07);
+    animation-timing-function: ease-in-out;
+  }
+  71%,
+  100% {
+    transform: scale(1);
+  }
+}
+@keyframes mapli-et-dr-d1 {
+  0%,
+  50% {
+    opacity: 0;
+    offset-distance: 0%;
+    animation-timing-function: cubic-bezier(0.45, 0, 0.35, 1);
+  }
+  50.3% {
+    opacity: 1;
+  }
+  62% {
+    opacity: 1;
+    offset-distance: 100%;
+  }
+  62.5%,
+  100% {
+    opacity: 0;
+    offset-distance: 100%;
+  }
+}
+@keyframes mapli-et-dr-d2 {
+  0%,
+  56% {
+    opacity: 0;
+    offset-distance: 0%;
+    animation-timing-function: cubic-bezier(0.45, 0, 0.35, 1);
+  }
+  56.3% {
+    opacity: 1;
+  }
+  68% {
+    opacity: 1;
+    offset-distance: 100%;
+  }
+  68.5%,
+  100% {
+    opacity: 0;
+    offset-distance: 100%;
+  }
+}
+@keyframes mapli-et-dr-pl {
+  0%,
+  71% {
+    opacity: 0;
+    transform: translateY(10px);
+    animation-timing-function: cubic-bezier(0.15, 0.6, 0.35, 1);
+  }
+  76%,
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+/* Mapli Drive vide */
+.mapli-anime .mapli-vg-n4-f1 {
+  animation: mapli-vg-n4-f1 4s linear infinite;
+}
+.mapli-anime .mapli-vg-n4-f2 {
+  animation: mapli-vg-n4-f2 4s linear infinite;
+}
+.mapli-anime .mapli-vg-n4-f3 {
+  animation: mapli-vg-n4-f3 4s linear infinite;
+}
+.mapli-anime .mapli-vg-n4-tr {
+  transform-origin: 60px 78px;
+  animation: mapli-vg-n4-tr 4s linear infinite;
+}
+.mapli-anime .mapli-vg-n4-lk {
+  transform-origin: 60px 64px;
+  animation: mapli-vg-n4-lk 4s linear infinite;
+}
+@keyframes mapli-vg-n4-f1 {
+  0%,
+  6% {
+    transform: translateY(-80px);
+    animation-timing-function: cubic-bezier(0.5, 0, 1, 0.7);
+  }
+  16% {
+    transform: translateY(0);
+    animation-timing-function: cubic-bezier(0, 0.5, 0.5, 1);
+  }
+  19% {
+    transform: translateY(-4px);
+    animation-timing-function: cubic-bezier(0.5, 0, 1, 0.6);
+  }
+  22%,
+  86% {
+    transform: translateY(0);
+    animation-timing-function: cubic-bezier(0.65, 0, 0.85, 0.4);
+  }
+  96%,
+  100% {
+    transform: translateY(-80px);
+  }
+}
+@keyframes mapli-vg-n4-f2 {
+  0%,
+  14% {
+    transform: translateY(-80px);
+    animation-timing-function: cubic-bezier(0.5, 0, 1, 0.7);
+  }
+  24% {
+    transform: translateY(0);
+    animation-timing-function: cubic-bezier(0, 0.5, 0.5, 1);
+  }
+  27% {
+    transform: translateY(-4px);
+    animation-timing-function: cubic-bezier(0.5, 0, 1, 0.6);
+  }
+  30%,
+  87% {
+    transform: translateY(0);
+    animation-timing-function: cubic-bezier(0.65, 0, 0.85, 0.4);
+  }
+  97%,
+  100% {
+    transform: translateY(-80px);
+  }
+}
+@keyframes mapli-vg-n4-f3 {
+  0%,
+  22% {
+    transform: translateY(-80px);
+    animation-timing-function: cubic-bezier(0.5, 0, 1, 0.7);
+  }
+  32% {
+    transform: translateY(0);
+    animation-timing-function: cubic-bezier(0, 0.5, 0.5, 1);
+  }
+  35% {
+    transform: translateY(-4px);
+    animation-timing-function: cubic-bezier(0.5, 0, 1, 0.6);
+  }
+  38%,
+  88% {
+    transform: translateY(0);
+    animation-timing-function: cubic-bezier(0.65, 0, 0.85, 0.4);
+  }
+  98%,
+  100% {
+    transform: translateY(-80px);
+  }
+}
+@keyframes mapli-vg-n4-tr {
+  0%,
+  15.5% {
+    transform: scale(1, 1);
+  }
+  17% {
+    transform: scale(1.04, 0.94);
+  }
+  19.5%,
+  23.5% {
+    transform: scale(1, 1);
+  }
+  25% {
+    transform: scale(1.04, 0.94);
+  }
+  27.5%,
+  31.5% {
+    transform: scale(1, 1);
+  }
+  33% {
+    transform: scale(1.04, 0.94);
+  }
+  35.5%,
+  100% {
+    transform: scale(1, 1);
+  }
+}
+@keyframes mapli-vg-n4-lk {
+  0%,
+  40% {
+    transform: scale(0);
+    animation-timing-function: cubic-bezier(0.15, 0.6, 0.35, 1);
+  }
+  48% {
+    transform: scale(1.2);
+    animation-timing-function: ease-in-out;
+  }
+  52%,
+  86% {
+    transform: scale(1);
+    animation-timing-function: ease-in;
+  }
+  94%,
+  100% {
+    transform: scale(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mapli-anime * {
+    animation: none !important;
+  }
+}

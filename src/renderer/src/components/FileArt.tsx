@@ -10,7 +10,6 @@ import { fileKind, fileLabel, type FileKind } from '../lib/file-kind'
 
 const INK = '#121212'
 const COFFRE = '#6B57F5'
-const COFFRE_INK = '#4B3BC4'
 const TINT = '#EEEBFF'
 const FOLD = '#EDECE6'
 const BRAND = '#DF7A45'
@@ -216,55 +215,6 @@ export function FileSheet({
       />
       <Drawing kind={kind} />
       <Label text={label} uploading={uploading} />
-    </svg>
-  )
-}
-
-/**
- * Coffre vide : des feuilles qui glissent dans le dossier violet du Coffre-fort, fermé
- * par le cadenas du chiffrement.
- */
-export function DropIllustration({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 88 64" className={cn('block', className)} aria-hidden="true">
-      <path
-        d="M8 18.5a2.5 2.5 0 0 1 2.5-2.5h18l5 5h44a2.5 2.5 0 0 1 2.5 2.5v32a2.5 2.5 0 0 1-2.5 2.5h-67a2.5 2.5 0 0 1-2.5-2.5z"
-        fill={COFFRE_INK}
-      />
-      <g transform="rotate(-9 35 18)">
-        <rect x={25} y={5} width={20} height={26} fill="#fff" stroke={INK} strokeOpacity={0.2} />
-        <rect x={28.5} y={9} width={13} height={1.5} fill={INK} opacity={0.16} />
-        <rect x={28.5} y={12.5} width={13} height={1.5} fill={INK} opacity={0.16} />
-        <rect x={28.5} y={16} width={9} height={1.5} fill={INK} opacity={0.16} />
-      </g>
-      <g transform="rotate(7 52 15)">
-        <path
-          d="M42 2.5h14l6 6v22H42z"
-          fill="#fff"
-          stroke={INK}
-          strokeOpacity={0.2}
-          strokeLinejoin="round"
-        />
-        <path
-          d="M56 2.5v6h6z"
-          fill={FOLD}
-          stroke={INK}
-          strokeOpacity={0.2}
-          strokeLinejoin="round"
-        />
-        <rect x={45.5} y={7} width={7} height={2} fill={COFFRE} />
-        <rect x={45.5} y={11.5} width={13} height={1.5} fill={INK} opacity={0.16} />
-        <rect x={45.5} y={15} width={13} height={1.5} fill={INK} opacity={0.16} />
-        <rect x={45.5} y={18.5} width={9} height={1.5} fill={INK} opacity={0.16} />
-      </g>
-      <path
-        d="M6 27.5A2.5 2.5 0 0 1 8.5 25h71a2.5 2.5 0 0 1 2.5 2.5l-2.2 26.2a2.5 2.5 0 0 1-2.5 2.3H10.7a2.5 2.5 0 0 1-2.5-2.3z"
-        fill={COFFRE}
-      />
-      <path d="M40.5 39v-2.6a3.5 3.5 0 0 1 7 0V39" fill="none" stroke="#fff" strokeWidth={1.6} />
-      <rect x={38.5} y={38.5} width={11} height={8.5} rx={1.5} fill="#fff" />
-      <circle cx={44} cy={41.9} r={1.3} fill={COFFRE} />
-      <rect x={43.4} y={42.4} width={1.2} height={2.4} rx={0.4} fill={COFFRE} />
     </svg>
   )
 }

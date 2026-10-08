@@ -28,8 +28,11 @@
   --color-success: #12a15f;
   --color-success-ink: #0b7a4b;
   --color-success-tint: #e2f5ec;
-  --color-danger: #c2382b;
-  --color-danger-tint: #fdf3f1;
+  /* Le rouge du kit 1.2 : erreurs, échecs et actions qu'on ne peut pas défaire ; messages en
+     rouge foncé sur rouge clair (5,9 : 1). */
+  --color-danger: #c8372d;
+  --color-danger-tint: #f8e1de;
+  --color-danger-ink: #a12a22;
   --color-warning: #f2b705;
 }
 

@@ -3,7 +3,8 @@ import { Folder, Pause, Settings } from 'lucide-react'
 import type { AppInfo, DriveState } from '@shared/types'
 import { CoffreVignette } from './Art'
 import { MapliButton, MapliLink } from './Brand'
-import { DropIllustration, FileSheet } from './FileArt'
+import { FileSheet } from './FileArt'
+import { DriveVideVignette } from './DriveArt'
 import { mapli } from '../lib/bridge'
 import { cn } from '../lib/cn'
 import { baseName, formatBytes, formatRelative, plural } from '../lib/format'
@@ -112,28 +113,29 @@ export function DriveScreen({
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4 pt-4 [scrollbar-width:thin]">
         {state.notice && state.phase === 'connected' && (
-          <div className="mb-3 border border-l-[3px] border-[#F0C9C3] border-l-danger bg-danger-tint px-3 py-2.5">
+          // Message d'erreur du kit 1.2 : rouge foncé sur rouge clair, sans filet.
+          <div className="mb-3 rounded-[4px] bg-danger-tint px-3 py-2.5 text-danger-ink">
             <div className="flex items-start justify-between gap-2">
-              <p className={`${kicker} text-danger`}>Envoi impossible</p>
+              <p className={kicker}>Envoi impossible</p>
               <button
                 type="button"
                 onClick={() => void mapli.drive.dismissNotice()}
-                className="-mr-1 -mt-0.5 cursor-pointer px-1 text-[12px] text-muted hover:text-ink"
+                className="-mr-1 -mt-0.5 cursor-pointer px-1 text-[12px] text-danger-ink/70 hover:text-danger-ink"
                 aria-label="Fermer"
               >
                 ✕
               </button>
             </div>
-            <p className="mt-1 text-[12px] leading-relaxed text-body">{state.notice}</p>
+            <p className="mt-1 text-[12px] leading-relaxed">{state.notice}</p>
           </div>
         )}
 
         {state.error && (state.phase === 'error' || state.phase === 'offline') && (
-          <div className="mb-3 border border-l-[3px] border-[#F0C9C3] border-l-danger bg-danger-tint px-3 py-2.5">
-            <p className={`${kicker} text-danger`}>
+          <div className="mb-3 rounded-[4px] bg-danger-tint px-3 py-2.5 text-danger-ink">
+            <p className={kicker}>
               {state.phase === 'offline' ? 'Hors ligne' : 'Accès au lecteur'}
             </p>
-            <p className="mt-1 text-[12px] leading-relaxed text-body">{state.error}</p>
+            <p className="mt-1 text-[12px] leading-relaxed">{state.error}</p>
           </div>
         )}
 
@@ -242,7 +244,7 @@ export function DriveScreen({
             <p className={`${kicker} mb-1.5 text-muted`}>Récemment ajoutés</p>
             {state.recent.length === 0 ? (
               <div className="flex items-center gap-3.5 border-y border-line py-3">
-                <DropIllustration className="h-14 w-auto shrink-0" />
+                <DriveVideVignette className="w-[75px] shrink-0" />
                 <p className="text-[12px] leading-relaxed text-muted">
                   Glissez des fichiers ou des dossiers dans le{' '}
                   {isMac ? 'volume Mapli' : `lecteur ${state.mountPoint}`} : ils arrivent dans le

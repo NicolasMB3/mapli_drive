@@ -1,14 +1,15 @@
 import { useEffect, useState } from 'react'
 import { Lock } from 'lucide-react'
 import type { DriveState } from '@shared/types'
-import { CoffreIllustration } from './Art'
+import { MapliDriveHeader } from './DriveArt'
 import { MapliButton, MapliLoader } from './Brand'
 import { mapli } from '../lib/bridge'
 
 /*
  * Relier le poste (direction « Bandeau ») : un bandeau d'encre, le code MAPL-XXXX sur
- * une plaque blanche, l'approbation sur app.mapli.fr, l'illustration violette du
- * Coffre-fort en pied. Boutons de la marque en version papier (sur fond noir).
+ * une plaque blanche, l'approbation sur app.mapli.fr ; en pied, l'en-tête Mapli Drive du kit
+ * 1.2 — la carte du code attend, puis le vrai code s'y tape, sans coche tant que l'accord
+ * n'est pas donné. Boutons de la marque en version papier (sur fond noir).
  */
 
 const kicker = 'font-mono text-[11px] uppercase tracking-[0.06em]'
@@ -133,7 +134,11 @@ export function PairingScreen({ state }: { state: DriveState }) {
       </div>
 
       <div className="relative min-h-[120px] flex-1 overflow-hidden bg-coffre">
-        <CoffreIllustration align="xMidYMax" className="absolute inset-0 h-full w-full" />
+        <MapliDriveHeader
+          code={pairing?.code}
+          etape={pairing?.code ? 'code' : 'vide'}
+          className="absolute inset-0 h-full w-full"
+        />
       </div>
       <p className="flex shrink-0 items-center gap-2 border-t border-line bg-surface-dim px-4 py-2.5 text-[12px] text-muted">
         <Lock className="h-3.5 w-3.5" />
