@@ -12,6 +12,7 @@ import { MapliButton, MapliCheck, Sign } from './Brand'
 import { mapli } from '../lib/bridge'
 import { cn } from '../lib/cn'
 import { plural } from '../lib/format'
+import { IS_MAC } from '../lib/platform'
 import { driveLabel } from '@shared/drive-label'
 
 /*
@@ -73,21 +74,30 @@ export function EmployeeSpacePopup() {
   return (
     <div ref={root} className="flex flex-col border border-line bg-surface">
       <div className="drag flex h-9 shrink-0 items-stretch border-b border-line">
-        <span className="grid w-10 shrink-0 place-items-center border-r border-line">
+        {/* macOS : les boutons ronds du système, à gauche (fermer = « Plus tard »). */}
+        {IS_MAC && <span className="w-[86px] shrink-0" aria-hidden="true" />}
+        <span
+          className={cn(
+            'grid w-10 shrink-0 place-items-center border-line',
+            IS_MAC ? 'border-x' : 'border-r'
+          )}
+        >
           <Sign className="w-5" />
         </span>
         <span className={cn(kicker, 'flex min-w-0 flex-1 items-center px-3 text-muted')}>
           Mapli Drive · {driveLabel(state?.mountPoint ?? 'M:')}
         </span>
-        <button
-          type="button"
-          onClick={() => void mapli.space.later()}
-          className="no-drag grid w-10 cursor-pointer place-items-center bg-ink text-white transition-colors hover:bg-danger"
-          title="Plus tard"
-          aria-label="Plus tard"
-        >
-          <X className="h-3.5 w-3.5" />
-        </button>
+        {!IS_MAC && (
+          <button
+            type="button"
+            onClick={() => void mapli.space.later()}
+            className="no-drag grid w-10 cursor-pointer place-items-center bg-ink text-white transition-colors hover:bg-danger"
+            title="Plus tard"
+            aria-label="Plus tard"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
       </div>
 
       {flash ? (

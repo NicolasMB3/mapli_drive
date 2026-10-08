@@ -186,7 +186,12 @@ function createPopupWindow(): BrowserWindow {
     width: POPUP_WIDTH,
     height: popupHeight,
     show: false,
-    frame: false,
+    // Comme la fenêtre principale : sous macOS, les boutons ronds du système (fermer vaut
+    // « Plus tard », voir 'close' ; réduire et agrandir restent grisés) ; sous Windows,
+    // fenêtre sans cadre, la croix est dans son en-tête.
+    ...(IS_MAC
+      ? { titleBarStyle: 'hidden' as const, trafficLightPosition: { x: 13, y: 11 } }
+      : { frame: false }),
     resizable: false,
     minimizable: false,
     maximizable: false,

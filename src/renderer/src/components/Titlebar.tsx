@@ -2,9 +2,7 @@ import { Minus, Settings, X } from 'lucide-react'
 import { Sign } from './Brand'
 import { mapli } from '../lib/bridge'
 import { cn } from '../lib/cn'
-
-/** macOS : les boutons de la fenêtre sont ceux du système, à gauche de la barre. */
-const IS_MAC = typeof navigator !== 'undefined' && /Macintosh|Mac OS X/.test(navigator.userAgent)
+import { IS_MAC } from '../lib/platform'
 
 /**
  * Barre de titre, charte « Papier », comme la barre du haut de app.mapli.fr : des cases à
