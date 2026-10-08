@@ -449,7 +449,7 @@ export class DriveMount {
   private async forget(all: boolean, dirs: string[], changed: string[]): Promise<void> {
     if (all) {
       await this.rcPost('vfs/forget')
-      await this.rcPost('vfs/forget', relistParams(['', ...this.pendingDirs]))
+      await this.rcPost('vfs/forget', relistParams([...new Set(['', ...this.pendingDirs])]))
       return
     }
     await this.rcPost('vfs/forget', { ...forgetParams(dirs), ...relistParams(changed) })
