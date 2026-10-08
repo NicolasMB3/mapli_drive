@@ -9,16 +9,22 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
 
+/**
+ * Nom du remote dans le cache : « :webdav{…} », deux-points écrit « ： » sous Windows (il y
+ * est interdit dans un nom de fichier ; rclone le remplace ainsi).
+ */
+const REMOTE = process.platform === 'win32' ? '\uff1awebdav{AbCdE}' : ':webdav{AbCdE}'
+
 /** Un cache de rclone : métadonnées (Dirty ou non) et contenu, sous un remote suffixé. */
 function cache(items: { path: string; dirty: boolean; content?: string }[]): string {
   const root = mkdtempSync(join(tmpdir(), 'mapli-cache-'))
   roots.push(root)
   for (const item of items) {
-    const meta = join(root, 'vfsMeta', ':webdav{AbCdE}', ...item.path.split('/'))
+    const meta = join(root, 'vfsMeta', REMOTE, ...item.path.split('/'))
     mkdirSync(dirname(meta), { recursive: true })
     writeFileSync(meta, JSON.stringify({ Size: 3, Dirty: item.dirty }))
     if (item.content !== undefined) {
-      const data = join(root, 'vfs', ':webdav{AbCdE}', ...item.path.split('/'))
+      const data = join(root, 'vfs', REMOTE, ...item.path.split('/'))
       mkdirSync(dirname(data), { recursive: true })
       writeFileSync(data, item.content)
     }

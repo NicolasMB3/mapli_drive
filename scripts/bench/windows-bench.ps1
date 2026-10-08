@@ -944,19 +944,20 @@ $jsonPath = Join-Path $OutDir "bench-windows-$Mode.json"
 $Result | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $jsonPath -Encoding utf8
 
 $md = [Text.StringBuilder]::new()
-function Md([string] $Line = '') { [void]$md.AppendLine($Line) }
-function Row([string] $Label, $Value, [string] $Unit = '') { Md "| $Label | $(Fmt $Value $Unit) |" }
+# « Md » serait l'alias de mkdir (les alias passent avant les fonctions en PowerShell).
+function Add-Md([string] $Line = '') { [void]$md.AppendLine($Line) }
+function Row([string] $Label, $Value, [string] $Unit = '') { Add-Md "| $Label | $(Fmt $Value $Unit) |" }
 $m = $Result.mesures
 
 $title = "### Lecteur Windows — mode « $Mode »"
 if ($LatencyMs -gt 0) { $title += " — latence +$LatencyMs ms" }
 if ($Extra.Count -gt 0) { $title += " — options : $($Extra -join ' ')" }
-Md $title
-Md ''
-Md "$($Result.environnement['systeme']) · $($Result.environnement['processeur']) · rclone $($Result.environnement['rclone']) · WinFsp $($Result.environnement['winfsp']) · antivirus temps réel : $($Result.environnement['antivirusTempsReel'])"
-Md ''
-Md '| Mesure | Valeur |'
-Md '|---|---|'
+Add-Md $title
+Add-Md ''
+Add-Md "$($Result.environnement['systeme']) · $($Result.environnement['processeur']) · rclone $($Result.environnement['rclone']) · WinFsp $($Result.environnement['winfsp']) · antivirus temps réel : $($Result.environnement['antivirusTempsReel'])"
+Add-Md ''
+Add-Md '| Mesure | Valeur |'
+Add-Md '|---|---|'
 if ($Result.montage.Contains('premier')) { Row 'Premier montage (pilote à froid) : lettre / première liste' "$(Fmt $Result.montage.premier.lettreMs) / $(Fmt $Result.montage.premier.premiereListeMs)" 'ms' }
 if ($Result.montage.Contains('principal')) { Row 'Montage : lettre / première liste' "$(Fmt $Result.montage.principal.lettreMs) / $(Fmt $Result.montage.principal.premiereListeMs)" 'ms' }
 foreach ($key in @($m.Keys)) {
@@ -977,25 +978,25 @@ foreach ($run in @($Result.assistant)) {
     Row "Assistant Explorateur ($($run.lancement)) : mémoire privée au repos" $run.auRepos.memoirePriveeMo 'Mo'
   }
 }
-Md ''
+Add-Md ''
 # Texte d'une cellule de tableau (ni retour à la ligne ni barre verticale).
 function Cell($Value) { if ($null -eq $Value) { '—' } else { "$Value" -replace '[\r\n|]+', ' ' } }
 $o = $Result.observations
-Md '| Observation | Résultat |'
-Md '|---|---|'
-if ($o.Contains('volume')) { Md "| Volume vu par Windows | $(Cell $o.volume.type), $(Cell $o.volume.systemeDeFichiers), sensible à la casse : $(Cell $o.volume.sensibleCasse) |" }
-if ($o.Contains('corbeille')) { Md "| Suppr dans l'Explorateur (FOF_ALLOWUNDO) | $(Cell $o.corbeille.resultat) |" }
-if ($o.Contains('visibleSansOubliApres2s')) { Md "| Fichier ajouté ailleurs, visible sans vfs/forget après 2 s | $(Cell $o.visibleSansOubliApres2s) |" }
-if ($o.Contains('cacheParJeton')) { Md "| Dossier du cache : autre token → autre dossier / même token → même dossier | $(Cell $o.cacheParJeton.different) / $(Cell $o.cacheParJeton.memeJetonMemeDossier) |" }
-if ($o.Contains('lettrePrise')) { Md "| Lettre prise par autre chose : l'application croit le lecteur monté / message | $(Cell $o.lettrePrise.applicationCroitLeLecteurMonte) / $(Cell $o.lettrePrise.messageMontre) |" }
-if ($o.Contains('serveurMuet')) { Md "| Serveur muet : liste de la racine | $(Cell $o.serveurMuet.listeDeLaRacine) |" }
-if ($o.Contains('jetonRefuse')) { Md "| Jeton refusé (liste en 401) : détecté par l'application | $(Cell $o.jetonRefuse.detecteParApplication) (dernière erreur : $(Cell $o.jetonRefuse.derniereErreur)) |" }
-Md ''
+Add-Md '| Observation | Résultat |'
+Add-Md '|---|---|'
+if ($o.Contains('volume')) { Add-Md "| Volume vu par Windows | $(Cell $o.volume.type), $(Cell $o.volume.systemeDeFichiers), sensible à la casse : $(Cell $o.volume.sensibleCasse) |" }
+if ($o.Contains('corbeille')) { Add-Md "| Suppr dans l'Explorateur (FOF_ALLOWUNDO) | $(Cell $o.corbeille.resultat) |" }
+if ($o.Contains('visibleSansOubliApres2s')) { Add-Md "| Fichier ajouté ailleurs, visible sans vfs/forget après 2 s | $(Cell $o.visibleSansOubliApres2s) |" }
+if ($o.Contains('cacheParJeton')) { Add-Md "| Dossier du cache : autre token → autre dossier / même token → même dossier | $(Cell $o.cacheParJeton.different) / $(Cell $o.cacheParJeton.memeJetonMemeDossier) |" }
+if ($o.Contains('lettrePrise')) { Add-Md "| Lettre prise par autre chose : l'application croit le lecteur monté / message | $(Cell $o.lettrePrise.applicationCroitLeLecteurMonte) / $(Cell $o.lettrePrise.messageMontre) |" }
+if ($o.Contains('serveurMuet')) { Add-Md "| Serveur muet : liste de la racine | $(Cell $o.serveurMuet.listeDeLaRacine) |" }
+if ($o.Contains('jetonRefuse')) { Add-Md "| Jeton refusé (liste en 401) : détecté par l'application | $(Cell $o.jetonRefuse.detecteParApplication) (dernière erreur : $(Cell $o.jetonRefuse.derniereErreur)) |" }
+Add-Md ''
 $failed = @($Result.verifications | Where-Object { -not $_.ok })
-Md "**Vérifications** : $($Result.verifications.Count - $failed.Count) / $($Result.verifications.Count) réussies."
-foreach ($check in $failed) { Md "- ÉCHEC — $($check.nom) : $($check.detail)" }
-foreach ($problem in $Result.erreurs) { Md "- ERREUR — $($problem.etape) : $($problem.message) (ligne $($problem.ligne))" }
-Md ''
+Add-Md "**Vérifications** : $($Result.verifications.Count - $failed.Count) / $($Result.verifications.Count) réussies."
+foreach ($check in $failed) { Add-Md "- ÉCHEC — $($check.nom) : $($check.detail)" }
+foreach ($problem in $Result.erreurs) { Add-Md "- ERREUR — $($problem.etape) : $($problem.message) (ligne $($problem.ligne))" }
+Add-Md ''
 
 $summary = $md.ToString()
 Set-Content -LiteralPath (Join-Path $OutDir "resume-$Mode.md") -Value $summary -Encoding utf8
